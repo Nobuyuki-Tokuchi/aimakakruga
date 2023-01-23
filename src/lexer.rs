@@ -3,9 +3,10 @@ use std::fmt::Display;
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     Unknown(String),
-    ValueOr,
+    VerticalBar,
     Bind,
     Circumflex,
+    Dollar,
     RightArrow,
     Value(String),
     Variable(String),
@@ -19,15 +20,20 @@ pub enum TokenType {
     NowForm,
     LogicalAnd,
     LogicalOr,
+    LogicalNot,
+    Like,
+    LeftCircle,
+    RightCircle,
 }
 
 impl Display for TokenType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
             Self::Unknown(token) => write!(f, "{}", token),
-            Self::ValueOr => write!(f, "|"),
+            Self::VerticalBar => write!(f, "|"),
             Self::Bind => write!(f, "="),
             Self::Circumflex => write!(f, "^"),
+            Self::Dollar => write!(f, "$"),
             Self::RightArrow => write!(f, "->"),
             Self::Value(token) => write!(f, "\"{}\"", token),
             Self::Variable(token) => write!(f, "{}", token),
@@ -38,9 +44,13 @@ impl Display for TokenType {
             Self::Equal => write!(f, "=="),
             Self::NotEqual => write!(f, "/="),
             Self::Original => write!(f, "@@"),
-            Self::NowForm => write!(f, "@%"),
+            Self::NowForm => write!(f, "@0"),
             Self::LogicalAnd => write!(f, "and"),
             Self::LogicalOr => write!(f, "or"),
+            Self::LogicalNot => write!(f, "not"),
+            Self::Like => write!(f, "like"),
+            Self::LeftCircle => write!(f, "("),
+            Self::RightCircle => write!(f, ")"),
         }
     }
 }
@@ -80,7 +90,7 @@ pub fn lexer(text: &str) -> Vec<TokenType> {
             }
         } else {
             match c {
-                '|' | ';' | '^' | '/' => {
+                '|' | ';' | '^' | '/' | '$' | '(' | ')' => {
                     if !buffer.is_empty() {
                         let token = String::from_iter(buffer.iter());
                         tokens.push(get_value(&token));
@@ -89,14 +99,14 @@ pub fn lexer(text: &str) -> Vec<TokenType> {
 
                     tokens.push(get_tokentype(c));
                 },
-                '#' => {
-                    if !buffer.is_empty() {
-                        let token = String::from_iter(buffer.iter());
-                        tokens.push(get_value(&token));
+                '-' => {
+                    let token = String::from_iter(buffer.iter());
+                    if token == "-" {
+                        mode = TokenizeMode::Comment;
                         buffer.clear();
+                    } else {
+                        buffer.push(c);
                     }
-
-                    mode = TokenizeMode::Comment;
                 },
                 '"' => {
                     if mode == TokenizeMode::String {
@@ -117,21 +127,17 @@ pub fn lexer(text: &str) -> Vec<TokenType> {
                             Some(TokenType::Bind) => {
                                 tokens.push(TokenType::Equal);
                             },
-                            Some(other) => {
-                                match other {
-                                    TokenType::Unknown(value) => {
-                                        if value == "/" {
-                                            tokens.push(TokenType::NotEqual);
-                                        } else {
-                                            tokens.push(TokenType::Unknown(value));
-                                            tokens.push(get_tokentype(c));
-                                        }
-                                    },
-                                    _ => {
-                                        tokens.push(other);
-                                        tokens.push(get_tokentype(c));
-                                    }
+                            Some(TokenType::Unknown(value)) => {
+                                if value == "/" {
+                                    tokens.push(TokenType::NotEqual);
+                                } else {
+                                    tokens.push(TokenType::Unknown(value));
+                                    tokens.push(get_tokentype(c));
                                 }
+                            },
+                            Some(other) => {
+                                tokens.push(other);
+                                tokens.push(get_tokentype(c));
                             },
                             None => tokens.push(get_tokentype(c)),
                         }
@@ -172,15 +178,16 @@ fn get_value(value: &str) -> TokenType {
         "when" => TokenType::When,
         "and" => TokenType::LogicalAnd,
         "or" => TokenType::LogicalOr,
+        "not" => TokenType::LogicalNot,
+        "like" => TokenType::Like,
         _ => {
             if value.starts_with("@") {
                 if let Some(x) = value.get(1..) {
                     match usize::from_str_radix(x, 10) {
-                        Ok(0) => TokenType::Unknown(String::from(value)),
+                        Ok(0) => TokenType::NowForm,
                         Ok(index) => TokenType::Reference(index - 1),
                         Err(_) => match x {
                             "@" => TokenType::Original,
-                            "%" => TokenType::NowForm,
                             _ => TokenType::Unknown(String::from(value)),
                         },
                     }
@@ -206,10 +213,13 @@ fn get_value(value: &str) -> TokenType {
 
 fn get_tokentype(value: char) -> TokenType {
     match value {
-        '|' => TokenType::ValueOr,
+        '|' => TokenType::VerticalBar,
         ';' => TokenType::Semicolon,
         '^' => TokenType::Circumflex,
         '=' => TokenType::Bind,
+        '$' => TokenType::Dollar,
+        '(' => TokenType::LeftCircle,
+        ')' => TokenType::RightCircle,
         _ => TokenType::Unknown(String::from(value)),
     }
 }
@@ -225,17 +235,20 @@ mod lexer_test {
     #[test]
     fn default() {
         let result = execute(r#"
-        # 一行コメント
+        -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
-        C = "p" | "t" | "k" | "f" | "s" | "h" | "l" | "y"
+        C = "p" | "t" | "k" | "f"
+            -- 特定部分は改行を入れても問題無いようにしたい
+            | "s" | "h" | "l" | "y"
         T = "p" | "t" | "k"
 
         ^ "s" "k" V -> "s" @3
         "e" "a" | "i" "a" -> "y" "a"
         "i" V when @2 == "i" or @2 == "e" -> "i" "i"
         V T T V when @2 == @3 -> @1 @2 @4
-        "l" "l" V ^ -> "l" @3
+        "l" "l" V $ -> "l" @3
         C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
+        "t" "s" when not ( @0 like @1 @2 V $ ) -> "s" "s"
         "#);
 
         println!("{:?}", result);
@@ -255,14 +268,16 @@ mod lexer_test {
     fn use_semicolon() {
         let result = execute(r#"
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
-        C = "p" | "t" | "k" | "f" | "s" | "h" | "l" | "y"
-        T = "p" | "t" | "k"
+        C = "p" | "t" | "k" | "f"
+        -- 特定部分は改行を入れても問題無いようにしたい
+            | "s" | "h" | "l" | "y";T = "p" | "t" | "k"
 
-        # セミコロンを使用すると一行に複数のパターンを記述できる
+        -- セミコロンを使用すると一行に複数のパターンを記述できる
         ^ "s" "k" V -> "s" @3
         "e" "a" | "i" "a" -> "y" "a"; "i" V when @2 == "i" or @2 == "e" -> "i" "i"
         V T T V when @2 == @3 -> @1 @2 @4;
-        "l" "l" V ^ -> "l" @3; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
+        "l" "l" V $ -> "l" @3; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
+        "t" "s" when not(@0 like @1 @2 V $) -> "s" "s";
         "#);
 
         println!("{:?}", result);

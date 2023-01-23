@@ -14,8 +14,23 @@ pub struct Data {
 pub(crate) struct ReplacePattern {
     pub from_list: Vec<String>,
     pub to: String,
-    pub when: Option<Vec<LogicalValue>>
+    pub when: Option<Vec<WhenValue>>,
 }
+
+#[derive(Debug, Clone)]
+pub(crate) enum WhenValue {
+    And,
+    Or,
+    Not,
+    Equal,
+    NotEqual,
+    Like,
+    Operand(Vec<Value>),
+    LikeOperand(Vec<Value>, Mode),
+    Original,
+    NowForm,
+}
+
 
 impl Data {
     pub(crate) fn get_replace_patterns_ref(&self) -> &Vec<ReplacePattern> {
@@ -102,10 +117,15 @@ fn create_regex_str(operators: &Vec<Statement>) -> Result<Vec<ReplacePattern>, E
                     from_list.push(create_from_pattern(pattern, &variables)?);
                 }
 
+                let when = match &shift.when {
+                    Some(when) => Some(create_when(&when, &variables)?),
+                    None => None,
+                };
+
                 regex_str.push(ReplacePattern {
                     from_list,
                     to,
-                    when: shift.when.clone()
+                    when,
                 });
             },
         }
@@ -114,7 +134,7 @@ fn create_regex_str(operators: &Vec<Statement>) -> Result<Vec<ReplacePattern>, E
     Ok(regex_str)
 }
 
-fn create_from_pattern(pattern: &Pattern, variables: &HashMap<String, Rc<DefineStruct>>) -> Result<String, Error> {
+fn create_from_pattern(pattern: &ShiftPattern, variables: &HashMap<String, Rc<DefineStruct>>) -> Result<String, Error> {
     let mut pattern_str = String::default();
     let values = convert_from_values(&pattern.values, variables)?;
 
@@ -142,8 +162,8 @@ fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<Defin
             Value::Literal(s) => s.to_owned(),
             Value::Variable(var) => {
                 if let Some(data) = variables.get(var) {
-                    let result: Vec<Result<String, Error>> = data.expr.iter().map(|x| {
-                        convert_from_values(&x.values, variables).map(|x| x.join("|"))
+                    let result: Vec<Result<String, Error>> = data.patterns.iter().map(|x| {
+                        convert_from_values(x, variables).map(|x| x.join(""))
                     }).collect();
 
                     if let Some(err) = result.iter().find_map(|x| x.as_ref().err()) {
@@ -168,7 +188,7 @@ fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<Defin
 }
 
 
-fn create_to_pattern(pattern: &Pattern) -> Result<String, Error> {
+fn create_to_pattern(pattern: &ShiftPattern) -> Result<String, Error> {
     let mut pattern_str = String::default();
 
     for value in pattern.values.iter() {
@@ -180,4 +200,60 @@ fn create_to_pattern(pattern: &Pattern) -> Result<String, Error> {
     }
 
     Ok(pattern_str)
+}
+
+fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStruct>>) -> Result<Vec<WhenValue>, Error> {
+    let mut result = Vec::new();
+
+    for node in when.iter() {
+        match node {
+            LogicalNode::Operand(operand) => {
+                let mut values = Vec::new();
+                let mut like_operand = operand.mode != Mode::None;
+
+                for value in operand.values.iter() {
+                    let value = match value {
+                        Value::Literal(s) => Value::Literal(s.to_owned()),
+                        Value::Variable(var) => {
+                            if let Some(data) = variables.get(var) {
+                                let result: Vec<Result<String, Error>> = data.patterns.iter().map(|x| {
+                                    convert_from_values(x, variables).map(|x| x.join(""))
+                                }).collect();
+            
+                                if let Some(err) = result.iter().find_map(|x| x.as_ref().err()) {
+                                    return Err(err.to_owned());
+                                } else {
+                                    let result = result.iter().map(|x| {
+                                        x.as_ref().unwrap().as_str()
+                                    }).collect::<Vec<&str>>().join("|");
+                                    like_operand = true;
+                                    Value::Variable(format!("({})", result))
+                                }
+                            } else {
+                                return Err(Error::NotFoundVariable(var.to_owned()));
+                            }
+                        },
+                        Value::Reference(index) => Value::Reference(*index),
+                    };
+                    values.push(value);
+                }
+
+                if like_operand {
+                    result.push(WhenValue::LikeOperand(values, operand.mode));
+                } else {
+                    result.push(WhenValue::Operand(values));
+                }
+            },
+            LogicalNode::And => result.push(WhenValue::And),
+            LogicalNode::Or => result.push(WhenValue::Or),
+            LogicalNode::Not => result.push(WhenValue::Not),
+            LogicalNode::Equal => result.push(WhenValue::Equal),
+            LogicalNode::NotEqual => result.push(WhenValue::NotEqual),
+            LogicalNode::Like => result.push(WhenValue::Like),
+            LogicalNode::Original => result.push(WhenValue::Original),
+            LogicalNode::NowForm => result.push(WhenValue::NowForm),
+        }
+    }
+
+    Ok(result)
 }
