@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use crate::common;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
@@ -17,6 +18,7 @@ pub enum TokenType {
     Equal,
     NotEqual,
     Original,
+    Part,
     NowForm,
     LogicalAnd,
     LogicalOr,
@@ -43,8 +45,9 @@ impl Display for TokenType {
             Self::When => write!(f, "when"),
             Self::Equal => write!(f, "=="),
             Self::NotEqual => write!(f, "/="),
-            Self::Original => write!(f, "@@"),
-            Self::NowForm => write!(f, "@0"),
+            Self::Original => write!(f, "{}", common::ORIGINAL_KEY),
+            Self::Part => write!(f, "{}", common::PART_KEY),
+            Self::NowForm => write!(f, "{}", common::NOW_WORD_KEY),
             Self::LogicalAnd => write!(f, "and"),
             Self::LogicalOr => write!(f, "or"),
             Self::LogicalNot => write!(f, "not"),
@@ -184,9 +187,10 @@ fn get_value(value: &str) -> TokenType {
             if value.starts_with("@") {
                 if let Some(x) = value.get(1..) {
                     match usize::from_str_radix(x, 10) {
-                        Ok(0) => TokenType::NowForm,
+                        Ok(0) => TokenType::Part,
                         Ok(index) => TokenType::Reference(index - 1),
                         Err(_) => match x {
+                            "n" => TokenType::NowForm,
                             "@" => TokenType::Original,
                             _ => TokenType::Unknown(String::from(value)),
                         },
@@ -238,17 +242,29 @@ mod lexer_test {
         -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
         C = "p" | "t" | "k" | "f"
-            -- 特定部分は改行を入れても問題無いようにしたい
+            -- `|`の前で改行することが可能
             | "s" | "h" | "l" | "y"
         T = "p" | "t" | "k"
 
+        -- `->`,`when`,`and`,`or`の前後で改行することが可能
         ^ "s" "k" V -> "s" @3
-        "e" "a" | "i" "a" -> "y" "a"
+        "e" "a"
+        | "i" "a"
+        ->
+            "y" "a"
         "i" V when @2 == "i" or @2 == "e" -> "i" "i"
-        V T T V when @2 == @3 -> @1 @2 @4
-        "l" "l" V $ -> "l" @3
-        C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
-        "t" "s" when not ( @0 like @1 @2 V $ ) -> "s" "s"
+        V T T V
+            when @2 == @3
+            -> @1 @2 @4
+        "l" "l" V $
+            -> "l" @3
+        C "l" V | C "l" "y" 
+            when @1 /= "l" -> @1 @3
+        "t" "s" V
+            when
+                not @0 like @1 @2 "a" $
+            ->
+                "s" @3
         "#);
 
         println!("{:?}", result);
@@ -267,17 +283,25 @@ mod lexer_test {
     #[test]
     fn use_semicolon() {
         let result = execute(r#"
+        -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
         C = "p" | "t" | "k" | "f"
-        -- 特定部分は改行を入れても問題無いようにしたい
-            | "s" | "h" | "l" | "y";T = "p" | "t" | "k"
+            -- `|`の前で改行することが可能
+            | "s" | "h" | "l" | "y"; T = "p" | "t" | "k"
 
         -- セミコロンを使用すると一行に複数のパターンを記述できる
         ^ "s" "k" V -> "s" @3
         "e" "a" | "i" "a" -> "y" "a"; "i" V when @2 == "i" or @2 == "e" -> "i" "i"
-        V T T V when @2 == @3 -> @1 @2 @4;
-        "l" "l" V $ -> "l" @3; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
-        "t" "s" when not(@0 like @1 @2 V $) -> "s" "s";
+        V T T V
+            when @2 == @3
+            -> @1 @2 @4
+        "l" "l" V $
+            -> "l" @3 ; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
+        "t" "s" V
+            when
+                not @0 like @1 @2 "a" $
+            ->
+                "s" @3;
         "#);
 
         println!("{:?}", result);

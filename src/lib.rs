@@ -2,24 +2,25 @@ mod error;
 mod data;
 mod lexer;
 mod parser;
+mod common;
 
 use std::collections::HashMap;
+use regex::Regex;
 
 pub use data::Data;
 use data::WhenValue;
 pub use error::Error;
 use parser::Mode;
-use regex::Regex;
 
 pub fn execute(word: &str, data: &Data) -> Result<String, Error> {
     let mut static_reference: HashMap<String, String> = HashMap::from_iter(vec![
-        (String::from("@@"), word.to_owned()),
-        (String::from("@%"), word.to_owned())
+        (String::from(common::ORIGINAL_KEY), word.to_owned()),
+        (String::from(common::NOW_WORD_KEY), word.to_owned())
     ]);
     let replace_patterns = data.get_replace_patterns_ref();
 
     for pattern in replace_patterns.iter() {
-        let mut now_word = static_reference.get("@%").unwrap().to_owned();
+        let mut now_word = static_reference.get(common::NOW_WORD_KEY).unwrap().to_owned();
 
         for from in pattern.from_list.iter() {
             let regex = Regex::new(from).map_err(|x| Error::ErrorMessage(format!("{}", x), None))?;
@@ -41,10 +42,10 @@ pub fn execute(word: &str, data: &Data) -> Result<String, Error> {
             };
         }
 
-        *static_reference.get_mut("@%").unwrap() = now_word;
+        *static_reference.get_mut(common::NOW_WORD_KEY).unwrap() = now_word;
     }
 
-    Ok(static_reference.get("@%").unwrap().clone())
+    Ok(static_reference.get(common::NOW_WORD_KEY).unwrap().clone())
 }
 
 pub fn execute_many(word_list: &[String], data: &Data) -> Vec<Result<String, Error>> {
@@ -97,6 +98,10 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                             let match_str = captures.name(&name).ok_or_else(|| Error::OutOfReferenceIndex(*index))?;
                             temp.push_str(match_str.as_str());
                         },
+                        parser::Value::Part => {
+                            let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), "$n".to_string(), 0))?;
+                            temp.push_str(match_str.as_str());
+                        },
                     }
                 }
 
@@ -122,6 +127,10 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                             let match_str = captures.name(&name).ok_or_else(|| Error::OutOfReferenceIndex(*index))?;
                             temp.push_str(match_str.as_str());
                         },
+                        parser::Value::Part => {
+                            let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), common::PART_KEY.to_string(), 0))?;
+                            temp.push_str(match_str.as_str());
+                        },
                     }
                 }
 
@@ -132,10 +141,14 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                 stack.push(temp.clone());
             }
             WhenValue::Original => {
-                stack.push(static_reference.get("@@").unwrap().to_string());
+                stack.push(static_reference.get(common::ORIGINAL_KEY).unwrap().to_string());
             },
             WhenValue::NowForm => {
-                stack.push(static_reference.get("@%").unwrap().to_string());
+                stack.push(static_reference.get(common::NOW_WORD_KEY).unwrap().to_string());
+            },
+            WhenValue::Part => {
+                let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), "$0".to_string(), 0))?;
+                stack.push(match_str.as_str().to_string());
             },
             WhenValue::Equal => {
                 if stack.len() < 2 {
@@ -155,7 +168,14 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                 let first = stack.pop().unwrap();
                 stack_bool.push(first != second);
             },
-            WhenValue::Not => todo!("Not supported now"),
+            WhenValue::Not => {
+                if stack_bool.len() > 0 && stack.len() != 0 {
+                    return Err(Error::ErrorMessage("Invalid operation".to_string(), None));
+                }
+
+                let not_value = !stack_bool.pop().unwrap();
+                stack_bool.push(not_value);
+            },
             WhenValue::Like => {
                 if stack.len() < 2 {
                     return Err(Error::ErrorMessage("Not enough operands".to_string(), None));
@@ -189,9 +209,10 @@ mod lib_test {
             String::from("sella"),
             String::from("fieties"),
             String::from("liefion"),
-            String::from("hioktsufitsa"),
+            String::from("hioktsafitsu"),
             String::from("pleatten"),
             String::from("flokta"),
+            String::from("kotsnai"),
             String::from("atsillentsa"),
         ];
         let result = execute(&words, r#"
@@ -202,7 +223,7 @@ mod lib_test {
             | "s" | "h" | "l" | "y"
         T = "p" | "t" | "k"
 
-        -- その他に`->`,`when`,`and`,`or`の前後で改行することが可能
+        -- `->`,`when`,`and`,`or`の前後で改行することが可能
         ^ "s" "k" V -> "s" @3
         "e" "a"
         | "i" "a"
@@ -218,12 +239,9 @@ mod lib_test {
             when @1 /= "l" -> @1 @3
         "t" "s" V
             when
-                @0 like @1 @2 "a" $
-            and
-                @3 /= "i"
+                not @0 like @1 @2 "a" $
             ->
                 "s" @3
-        -- "t" "s" when not ( @0 like @1 @2 V $ ) -> "s" "s"
         "#);
 
         let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
@@ -238,9 +256,10 @@ mod lib_test {
             String::from("sella"),
             String::from("fieties"),
             String::from("liefion"),
-            String::from("hioktsufitsa"),
+            String::from("hioktsafitsu"),
             String::from("pleatten"),
             String::from("flokta"),
+            String::from("kotsnai"),
             String::from("atsillentsa"),
         ];
         let result = execute(&words, r#"
@@ -260,12 +279,9 @@ mod lib_test {
             -> "l" @3 ; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
         "t" "s" V
             when
-                @0 like @1 @2 "a" $
-            and
-                @3 /= "i"
+                not @0 like @1 @2 "a" $
             ->
                 "s" @3;
-        -- "t" "s" when not ( @0 like @1 @2 V $ ) -> "s" "s"
         "#);
 
         let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();

@@ -21,6 +21,7 @@ pub(crate) enum Value {
     Literal(String),
     Variable(String),
     Reference(usize),
+    Part,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +55,7 @@ pub(crate) enum LogicalNode {
     Like,
     Operand(ShiftPattern),
     Original,
+    Part,
     NowForm,
 }
 
@@ -417,13 +419,19 @@ fn parse_when(tokens: &[TokenType], index: usize) -> Result<(Vec<LogicalNode>, u
                     }
                     values.push(LogicalNode::NowForm);
                 },
-                TokenType::LogicalNot => todo!("Not supported now"),
-                TokenType::Equal | TokenType::NotEqual | TokenType::LogicalAnd | TokenType::LogicalOr | TokenType::Like => {
+                TokenType::Part => {
+                    if !stack_value.is_empty(){
+                        return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
+                    }
+                    values.push(LogicalNode::Part);
+                }
+                TokenType::Equal | TokenType::NotEqual | TokenType::LogicalAnd | TokenType::LogicalOr | TokenType::LogicalNot | TokenType::Like => {
                     let operator = match token {
                         TokenType::Equal => LogicalNode::Equal,
                         TokenType::NotEqual => LogicalNode::NotEqual,
                         TokenType::LogicalAnd => LogicalNode::And,
                         TokenType::LogicalOr => LogicalNode::Or,
+                        TokenType::LogicalNot => LogicalNode::Not,
                         TokenType::Like => LogicalNode::Like,
                         _ => return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index))
                     };
@@ -453,6 +461,9 @@ fn parse_when(tokens: &[TokenType], index: usize) -> Result<(Vec<LogicalNode>, u
                                 },
                                 TokenType::Reference(i) => {
                                     logic_values.push(Value::Reference(*i));
+                                },
+                                TokenType::Part => {
+                                    logic_values.push(Value::Part);
                                 },
                                 _ => (),
                             }
@@ -555,16 +566,20 @@ fn check_precedence(prev: &LogicalNode, now: &LogicalNode) -> Ordering {
             LogicalNode::Or => Ordering::Equal,
             _ => Ordering::Less,
         },
-        LogicalNode::Operand(_) | LogicalNode::Original | LogicalNode::NowForm => match now {
-            LogicalNode::Operand(_) | LogicalNode::Original | LogicalNode::NowForm => Ordering::Equal,
-            _ => Ordering::Greater,
+        LogicalNode::Not => match now {
+            LogicalNode::Not => Ordering::Equal,
+            LogicalNode::And | LogicalNode::Or => Ordering::Greater,
+            _ => Ordering::Less,
         },
         LogicalNode::Equal | LogicalNode::NotEqual | LogicalNode::Like => match now {
             LogicalNode::Equal | LogicalNode::NotEqual => Ordering::Equal,
             LogicalNode::And | LogicalNode::Or => Ordering::Greater,
             _ => Ordering::Less,
         },
-        LogicalNode::Not => todo!(),
+        LogicalNode::Operand(_) | LogicalNode::Original | LogicalNode::NowForm | LogicalNode::Part => match now {
+            LogicalNode::Operand(_) | LogicalNode::Original | LogicalNode::NowForm | LogicalNode::Part => Ordering::Equal,
+            _ => Ordering::Greater,
+        },
     }
 }
 
@@ -584,18 +599,29 @@ mod parser_test {
         -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
         C = "p" | "t" | "k" | "f"
-            -- 特定部分は改行を入れても問題無いようにしたい
+            -- `|`の前で改行することが可能
             | "s" | "h" | "l" | "y"
         T = "p" | "t" | "k"
 
+        -- `->`,`when`,`and`,`or`の前後で改行することが可能
         ^ "s" "k" V -> "s" @3
-        "e" "a" | "i" "a" -> "y" "a"
+        "e" "a"
+        | "i" "a"
+        ->
+            "y" "a"
         "i" V when @2 == "i" or @2 == "e" -> "i" "i"
-        V T T V when @2 == @3 -> @1 @2 @4
-        "l" "l" V $ -> "l" @3
-        C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
-        "t" "s" when @0 like @1 @2 V $ -> "s" "s"
-        -- "t" "s" when not ( @0 like @1 @2 V $ ) -> "s" "s"
+        V T T V
+            when @2 == @3
+            -> @1 @2 @4
+        "l" "l" V $
+            -> "l" @3
+        C "l" V | C "l" "y" 
+            when @1 /= "l" -> @1 @3
+        "t" "s" V
+            when
+                not @0 like @1 @2 "a" $
+            ->
+                "s" @3
         "#);
 
         println!("{:?}", result);
@@ -605,16 +631,25 @@ mod parser_test {
     #[test]
     fn use_semicolon() {
         let result = execute(r#"
+        -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
-        C = "p" | "t" | "k" | "f" | "s" | "h" | "l" | "y"
-        T = "p" | "t" | "k"
+        C = "p" | "t" | "k" | "f"
+            -- `|`の前で改行することが可能
+            | "s" | "h" | "l" | "y"; T = "p" | "t" | "k"
 
         -- セミコロンを使用すると一行に複数のパターンを記述できる
         ^ "s" "k" V -> "s" @3
         "e" "a" | "i" "a" -> "y" "a"; "i" V when @2 == "i" or @2 == "e" -> "i" "i"
-        V T T V when @2 == @3 -> @1 @2 @4;
-        "l" "l" V $ -> "l" @3; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
-        "t" "s" when @0 is not @1 @2 V $ -> "s" "s";
+        V T T V
+            when @2 == @3
+            -> @1 @2 @4
+        "l" "l" V $
+            -> "l" @3 ; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
+        "t" "s" V
+            when
+                not @0 like @1 @2 "a" $
+            ->
+                "s" @3;
         "#);
 
         println!("{:?}", result);

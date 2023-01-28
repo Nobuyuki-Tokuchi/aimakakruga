@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use crate::error::Error;
 use crate::lexer::lexer;
-use crate::parser::*;
+use crate::{parser::*, common};
 
 #[derive(Debug, Clone)]
 pub struct Data {
@@ -28,6 +28,7 @@ pub(crate) enum WhenValue {
     Operand(Vec<Value>),
     LikeOperand(Vec<Value>, Mode),
     Original,
+    Part,
     NowForm,
 }
 
@@ -179,6 +180,7 @@ fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<Defin
                 }
             },
             Value::Reference(index) => return Err(Error::ErrorMessage(format!("Invalid token: `@{}`", index + 1), None)),
+            Value::Part => return Err(Error::ErrorMessage(format!("Invalid token: `{}`", common::PART_KEY), None)),
         };
 
         values_str.push(s);
@@ -196,6 +198,7 @@ fn create_to_pattern(pattern: &ShiftPattern) -> Result<String, Error> {
             Value::Literal(s) => pattern_str.push_str(s),
             Value::Variable(var) => return Err(Error::ErrorMessage(format!("Invalid token: `{}`", var), None)),
             Value::Reference(index) => pattern_str.push_str(&format!("${{x{}}}", index)),
+            Value::Part => pattern_str.push_str(&format!("$0")),
         };
     }
 
@@ -233,6 +236,7 @@ fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStr
                                 return Err(Error::NotFoundVariable(var.to_owned()));
                             }
                         },
+                        Value::Part => Value::Part,
                         Value::Reference(index) => Value::Reference(*index),
                     };
                     values.push(value);
@@ -251,6 +255,7 @@ fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStr
             LogicalNode::NotEqual => result.push(WhenValue::NotEqual),
             LogicalNode::Like => result.push(WhenValue::Like),
             LogicalNode::Original => result.push(WhenValue::Original),
+            LogicalNode::Part => result.push(WhenValue::Part),
             LogicalNode::NowForm => result.push(WhenValue::NowForm),
         }
     }
