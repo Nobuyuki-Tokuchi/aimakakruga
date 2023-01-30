@@ -218,10 +218,10 @@ mod lib_test {
         let result = execute(&words, r#"
         -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
-        C = "p" | "t" | "k" | "f"
-            -- `|`の前で改行することが可能
-            | "s" | "h" | "l" | "y"
         T = "p" | "t" | "k"
+        C = T | "f" | "s" | "h" 
+            -- `|`の前で改行することが可能
+            | "l" | "y"
 
         -- `->`,`when`,`and`,`or`の前後で改行することが可能
         ^ "s" "k" V -> "s" @3
@@ -239,7 +239,7 @@ mod lib_test {
             when @1 /= "l" -> @1 @3
         "t" "s" V
             when
-                not @0 like @1 @2 "a" $
+                not (@0 like @1 @2 "a" $ or @0 like @1 @2 "u" $)
             ->
                 "s" @3
         "#);
@@ -265,9 +265,9 @@ mod lib_test {
         let result = execute(&words, r#"
         -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
-        C = "p" | "t" | "k" | "f"
+        T = "p" | "t" | "k"; C = T | "f" | "s" | "h" 
             -- `|`の前で改行することが可能
-            | "s" | "h" | "l" | "y"; T = "p" | "t" | "k"
+            | "l" | "y"
 
         -- セミコロンを使用すると一行に複数のパターンを記述できる
         ^ "s" "k" V -> "s" @3
@@ -279,7 +279,7 @@ mod lib_test {
             -> "l" @3 ; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
         "t" "s" V
             when
-                not @0 like @1 @2 "a" $
+                not (@0 like @1 @2 "a" $ or @0 like @1 @2 "u" $)
             ->
                 "s" @3;
         "#);

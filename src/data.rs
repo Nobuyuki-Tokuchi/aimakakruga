@@ -257,6 +257,7 @@ fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStr
             LogicalNode::Original => result.push(WhenValue::Original),
             LogicalNode::Part => result.push(WhenValue::Part),
             LogicalNode::NowForm => result.push(WhenValue::NowForm),
+            LogicalNode::LeftCircle => (),
         }
     }
 

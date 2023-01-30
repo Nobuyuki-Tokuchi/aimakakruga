@@ -57,6 +57,7 @@ pub(crate) enum LogicalNode {
     Original,
     Part,
     NowForm,
+    LeftCircle,
 }
 
 impl DefineStruct {
@@ -472,38 +473,99 @@ fn parse_when(tokens: &[TokenType], index: usize) -> Result<(Vec<LogicalNode>, u
                         values.push(LogicalNode::Operand(ShiftPattern { values: logic_values, mode: get_mode(is_prefix, is_suffix) }));
                         stack_value = Vec::new();
                     }
+
                     if let Some(prev) = stack_operator.pop() {
-                        let ord = check_precedence(&prev, &operator);
-                        if ord == Ordering::Greater {
-                            values.push(prev);
-                        } else {
+                        if let LogicalNode::LeftCircle = prev {
                             stack_operator.push(prev);
+                        } else {
+                            let ord = check_precedence(&prev, &operator);
+                            if ord != Ordering::Less {
+                                values.push(prev);
+                            } else {
+                                stack_operator.push(prev);
+                            }
                         }
                     }
                     stack_operator.push(operator);
                 },
                 TokenType::NewLine => {
-                    let mut is_skip = false;
+                    let mut is_end = true;
                     if let Some(token) = tokens.get(next_index - 1) {
                         match token {
-                            TokenType::NewLine | TokenType::When => is_skip = true,
-                            TokenType::LogicalAnd | TokenType::LogicalOr => is_skip = true,
-                            TokenType::LeftCircle | TokenType::RightCircle => is_skip = true,
+                            TokenType::NewLine | TokenType::When => is_end = false,
+                            TokenType::LogicalAnd | TokenType::LogicalOr => is_end = false,
+                            TokenType::LeftCircle | TokenType::RightCircle => is_end = false,
                             _ => (),
                         }
                     }
 
                     if let Some(token) = tokens.get(next_index + 1) {
                         match token {
-                            TokenType::NewLine | TokenType::When => is_skip = true,
-                            TokenType::LogicalAnd | TokenType::LogicalOr => is_skip = true,
-                            TokenType::LeftCircle | TokenType::RightCircle => is_skip = true,
+                            TokenType::NewLine | TokenType::When => is_end = false,
+                            TokenType::LogicalAnd | TokenType::LogicalOr => is_end = false,
+                            TokenType::LeftCircle | TokenType::RightCircle => is_end = false,
                             _ => (),
                         }
                     }
 
-                    if !is_skip {
+                    if is_end {
                         break;
+                    }
+                }
+                TokenType::LeftCircle => {
+                    if !stack_value.is_empty() {
+                        return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
+                    }
+
+                    stack_operator.push(LogicalNode::LeftCircle);
+                },
+                TokenType::RightCircle => {
+                    if !stack_value.is_empty() {
+                        let is_prefix = if let TokenType::Circumflex = stack_value[0] {
+                            stack_value.remove(0);
+                            true
+                        } else {
+                            false
+                        };
+                        let is_suffix = if let TokenType::Dollar = stack_value[stack_value.len() - 1] {
+                            stack_value.pop();
+                            true
+                        } else {
+                            false
+                        };
+
+                        let mut logic_values = Vec::new();
+                        for value in stack_value.into_iter() {
+                            match value {
+                                TokenType::Value(s) => {
+                                    logic_values.push(Value::Literal(s.to_owned()));
+                                },
+                                TokenType::Variable(s) => {
+                                    logic_values.push(Value::Variable(s.to_owned()));
+                                },
+                                TokenType::Reference(i) => {
+                                    logic_values.push(Value::Reference(*i));
+                                },
+                                TokenType::Part => {
+                                    logic_values.push(Value::Part);
+                                },
+                                _ => (),
+                            }
+                        }
+
+                        values.push(LogicalNode::Operand(ShiftPattern { values: logic_values, mode: get_mode(is_prefix, is_suffix) }));
+                        stack_value = Vec::new();
+                    }
+
+                    loop {
+                        if let Some(node) = stack_operator.pop() {
+                            match node {
+                                LogicalNode::LeftCircle => break,
+                                _ => values.push(node),
+                            }
+                        } else {
+                            return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
+                        }
                     }
                 }
                 _ => break,
@@ -567,7 +629,7 @@ fn check_precedence(prev: &LogicalNode, now: &LogicalNode) -> Ordering {
             _ => Ordering::Less,
         },
         LogicalNode::Not => match now {
-            LogicalNode::Not => Ordering::Equal,
+            LogicalNode::Not => Ordering::Less,
             LogicalNode::And | LogicalNode::Or => Ordering::Greater,
             _ => Ordering::Less,
         },
@@ -580,6 +642,7 @@ fn check_precedence(prev: &LogicalNode, now: &LogicalNode) -> Ordering {
             LogicalNode::Operand(_) | LogicalNode::Original | LogicalNode::NowForm | LogicalNode::Part => Ordering::Equal,
             _ => Ordering::Greater,
         },
+        LogicalNode::LeftCircle => Ordering::Greater,
     }
 }
 
@@ -619,7 +682,7 @@ mod parser_test {
             when @1 /= "l" -> @1 @3
         "t" "s" V
             when
-                not @0 like @1 @2 "a" $
+                not (@0 like @1 @2 "a" $ or @0 like @1 @2 "u" $)
             ->
                 "s" @3
         "#);
@@ -647,7 +710,7 @@ mod parser_test {
             -> "l" @3 ; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
         "t" "s" V
             when
-                not @0 like @1 @2 "a" $
+                not (@0 like @1 @2 "a" $ or @0 like @1 @2 "u" $)
             ->
                 "s" @3;
         "#);
