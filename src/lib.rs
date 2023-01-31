@@ -99,9 +99,12 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                             temp.push_str(match_str.as_str());
                         },
                         parser::Value::Part => {
-                            let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), "$n".to_string(), 0))?;
+                            let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), "@n".to_string(), 0))?;
                             temp.push_str(match_str.as_str());
                         },
+                        parser::Value::AnyChar => {
+                            return Err(Error::InvalidToken("when expression".to_string(), ".".to_string(), 0));
+                        }
                     }
                 }
 
@@ -131,6 +134,9 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                             let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), common::PART_KEY.to_string(), 0))?;
                             temp.push_str(match_str.as_str());
                         },
+                        parser::Value::AnyChar => {
+                            temp.push('.');
+                        }
                     }
                 }
 
@@ -229,7 +235,7 @@ mod lib_test {
         | "i" "a"
         ->
             "y" "a"
-        "i" V when @2 == "i" or @2 == "e" -> "i" "i"
+        "i" . when @2 == "i" or @2 == "e" -> "i" "i"
         V T T V
             when @2 == @3
             -> @1 @2 @4
@@ -271,7 +277,7 @@ mod lib_test {
 
         -- セミコロンを使用すると一行に複数のパターンを記述できる
         ^ "s" "k" V -> "s" @3
-        "e" "a" | "i" "a" -> "y" "a"; "i" V when @2 == "i" or @2 == "e" -> "i" "i"
+        "e" "a" | "i" "a" -> "y" "a"; "i" . when @2 == "i" or @2 == "e" -> "i" "i"
         V T T V
             when @2 == @3
             -> @1 @2 @4

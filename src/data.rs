@@ -181,6 +181,7 @@ fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<Defin
             },
             Value::Reference(index) => return Err(Error::ErrorMessage(format!("Invalid token: `@{}`", index + 1), None)),
             Value::Part => return Err(Error::ErrorMessage(format!("Invalid token: `{}`", common::PART_KEY), None)),
+            Value::AnyChar => String::from("."),
         };
 
         values_str.push(s);
@@ -199,6 +200,7 @@ fn create_to_pattern(pattern: &ShiftPattern) -> Result<String, Error> {
             Value::Variable(var) => return Err(Error::ErrorMessage(format!("Invalid token: `{}`", var), None)),
             Value::Reference(index) => pattern_str.push_str(&format!("${{x{}}}", index)),
             Value::Part => pattern_str.push_str(&format!("$0")),
+            Value::AnyChar  => return Err(Error::ErrorMessage("Invalid token: `.`".to_string(), None)),
         };
     }
 
@@ -238,6 +240,10 @@ fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStr
                         },
                         Value::Part => Value::Part,
                         Value::Reference(index) => Value::Reference(*index),
+                        Value::AnyChar => {
+                            like_operand = true;
+                            Value::AnyChar
+                        },
                     };
                     values.push(value);
                 }

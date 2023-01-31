@@ -26,6 +26,7 @@ pub enum TokenType {
     Like,
     LeftCircle,
     RightCircle,
+    AnyChar,
 }
 
 impl Display for TokenType {
@@ -54,6 +55,7 @@ impl Display for TokenType {
             Self::Like => write!(f, "like"),
             Self::LeftCircle => write!(f, "("),
             Self::RightCircle => write!(f, ")"),
+            Self::AnyChar => write!(f, "."),
         }
     }
 }
@@ -93,7 +95,7 @@ pub fn lexer(text: &str) -> Vec<TokenType> {
             }
         } else {
             match c {
-                '|' | ';' | '^' | '/' | '$' | '(' | ')' => {
+                '|' | ';' | '^' | '/' | '$' | '(' | ')' | '.' => {
                     if !buffer.is_empty() {
                         let token = String::from_iter(buffer.iter());
                         tokens.push(get_value(&token));
@@ -224,6 +226,7 @@ fn get_tokentype(value: char) -> TokenType {
         '$' => TokenType::Dollar,
         '(' => TokenType::LeftCircle,
         ')' => TokenType::RightCircle,
+        '.' => TokenType::AnyChar,
         _ => TokenType::Unknown(String::from(value)),
     }
 }
@@ -252,7 +255,7 @@ mod lexer_test {
         | "i" "a"
         ->
             "y" "a"
-        "i" V when @2 == "i" or @2 == "e" -> "i" "i"
+        "i" . when @2 == "i" or @2 == "e" -> "i" "i"
         V T T V
             when @2 == @3
             -> @1 @2 @4
@@ -262,7 +265,7 @@ mod lexer_test {
             when @1 /= "l" -> @1 @3
         "t" "s" V
             when
-                not @0 like @1 @2 "a" $
+                not (@0 like @1 @2 "a" $ or @0 like @1 @2 "u" $)
             ->
                 "s" @3
         "#);
@@ -285,13 +288,13 @@ mod lexer_test {
         let result = execute(r#"
         -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
-        C = "p" | "t" | "k" | "f"
+        T = "p" | "t" | "k"; C = T | "f" | "s" | "h" 
             -- `|`の前で改行することが可能
-            | "s" | "h" | "l" | "y"; T = "p" | "t" | "k"
+            | "l" | "y"
 
         -- セミコロンを使用すると一行に複数のパターンを記述できる
         ^ "s" "k" V -> "s" @3
-        "e" "a" | "i" "a" -> "y" "a"; "i" V when @2 == "i" or @2 == "e" -> "i" "i"
+        "e" "a" | "i" "a" -> "y" "a"; "i" . when @2 == "i" or @2 == "e" -> "i" "i"
         V T T V
             when @2 == @3
             -> @1 @2 @4
@@ -299,7 +302,7 @@ mod lexer_test {
             -> "l" @3 ; C "l" V | C "l" "y" when @1 /= "l" -> @1 @3
         "t" "s" V
             when
-                not @0 like @1 @2 "a" $
+                not (@0 like @1 @2 "a" $ or @0 like @1 @2 "u" $)
             ->
                 "s" @3;
         "#);

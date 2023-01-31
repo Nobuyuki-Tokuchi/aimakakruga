@@ -22,6 +22,7 @@ pub(crate) enum Value {
     Variable(String),
     Reference(usize),
     Part,
+    AnyChar,
 }
 
 #[derive(Debug, Clone)]
@@ -357,6 +358,7 @@ fn parse_shift_value(tokens: &[TokenType], index: usize) -> Result<(Value, usize
             TokenType::Value(value) => Ok((Value::Literal(value.clone()), index + 1)),
             TokenType::Variable(value) => Ok((Value::Variable(value.clone()), index + 1)),
             TokenType::Reference(value) => Ok((Value::Reference(*value), index + 1)),
+            TokenType::AnyChar => Ok((Value::AnyChar, index + 1)),
             _ => Err(Error::InvalidToken(String::from("value"), token.to_string(), index)),
         }
     } else {
@@ -672,7 +674,7 @@ mod parser_test {
         | "i" "a"
         ->
             "y" "a"
-        "i" V when @2 == "i" or @2 == "e" -> "i" "i"
+        "i" . when @2 == "i" or @2 == "e" -> "i" "i"
         V T T V
             when @2 == @3
             -> @1 @2 @4
@@ -696,13 +698,13 @@ mod parser_test {
         let result = execute(r#"
         -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
-        C = "p" | "t" | "k" | "f"
+        T = "p" | "t" | "k"; C = T | "f" | "s" | "h" 
             -- `|`の前で改行することが可能
-            | "s" | "h" | "l" | "y"; T = "p" | "t" | "k"
+            | "l" | "y"
 
         -- セミコロンを使用すると一行に複数のパターンを記述できる
         ^ "s" "k" V -> "s" @3
-        "e" "a" | "i" "a" -> "y" "a"; "i" V when @2 == "i" or @2 == "e" -> "i" "i"
+        "e" "a" | "i" "a" -> "y" "a"; "i" . when @2 == "i" or @2 == "e" -> "i" "i"
         V T T V
             when @2 == @3
             -> @1 @2 @4
