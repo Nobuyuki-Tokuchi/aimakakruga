@@ -68,8 +68,11 @@ enum TokenizeMode {
 }
 
 pub fn lexer(text: &str) -> Vec<TokenType> {
-    let text = text.chars();
+    let mut temporary = String::with_capacity(text.len() + 1);
+    temporary.push_str(text);
+    temporary.push('\n');
 
+    let text = temporary.chars();
     let mut tokens: Vec<TokenType> = vec![];
     let mut buffer: Vec<char> = vec![];
     let mut mode = TokenizeMode::Normal;
@@ -105,12 +108,28 @@ pub fn lexer(text: &str) -> Vec<TokenType> {
                     tokens.push(get_tokentype(c));
                 },
                 '-' => {
-                    let token = String::from_iter(buffer.iter());
-                    if token == "-" {
-                        mode = TokenizeMode::Comment;
-                        buffer.clear();
+                    if buffer.is_empty() {
+                        match tokens.pop() {
+                            Some(TokenType::Unknown(value)) => {
+                                if value == "-" {
+                                    mode = TokenizeMode::Comment;
+                                } else {
+                                    tokens.push(TokenType::Unknown(value));
+                                    tokens.push(get_tokentype(c));
+                                }
+                            },
+                            Some(other) => {
+                                tokens.push(other);
+                                tokens.push(get_tokentype(c));
+                            },
+                            None => tokens.push(get_tokentype(c)),
+                        }
                     } else {
-                        buffer.push(c);
+                        let token = String::from_iter(buffer.iter());
+                        tokens.push(get_value(&token));
+                        buffer.clear();
+    
+                        tokens.push(get_tokentype(c));
                     }
                 },
                 '"' => {
@@ -155,16 +174,27 @@ pub fn lexer(text: &str) -> Vec<TokenType> {
                     }
                 },
                 '>' => {
-                    let token = String::from_iter(buffer.iter());
-                    if token == "-" {
-                        tokens.push(TokenType::RightArrow);
-                        buffer.clear();
-                    } else {
-                        if !buffer.is_empty() {
-                            tokens.push(get_value(&token));
-                            buffer.clear();
+                    if buffer.is_empty() {
+                        match tokens.pop() {
+                            Some(TokenType::Unknown(value)) => {
+                                if value == "-" {
+                                    tokens.push(TokenType::RightArrow);
+                                } else {
+                                    tokens.push(TokenType::Unknown(value));
+                                    tokens.push(get_tokentype(c));
+                                }
+                            },
+                            Some(other) => {
+                                tokens.push(other);
+                                tokens.push(get_tokentype(c));
+                            },
+                            None => tokens.push(get_tokentype(c)),
                         }
-
+                    } else {
+                        let token = String::from_iter(buffer.iter());
+                        tokens.push(get_value(&token));
+                        buffer.clear();
+    
                         tokens.push(get_tokentype(c));
                     }
                 },
@@ -175,7 +205,28 @@ pub fn lexer(text: &str) -> Vec<TokenType> {
         }
     }
 
-    tokens
+    let mut ret_tokens = Vec::with_capacity(tokens.capacity());
+    for token in tokens.into_iter() {
+        match token {
+            TokenType::NewLine => {
+                match ret_tokens.last() {
+                    Some(TokenType::LeftCircle | TokenType::Like | TokenType::LogicalAnd | TokenType::LogicalOr | TokenType::NewLine | TokenType::RightArrow | TokenType::Semicolon | TokenType::When) => (),
+                    None => (),
+                    _ => ret_tokens.push(token),
+                }
+            },
+            TokenType::LeftCircle | TokenType::Like | TokenType::LogicalAnd | TokenType::LogicalOr | TokenType::RightArrow | TokenType::Semicolon | TokenType::VerticalBar | TokenType::When => {
+                if let Some(TokenType::NewLine) = ret_tokens.last() {
+                    ret_tokens.pop();
+                }
+
+                ret_tokens.push(token);
+            }
+            _ => ret_tokens.push(token),
+        }
+    }
+
+    ret_tokens
 }
 
 fn get_value(value: &str) -> TokenType {
@@ -244,10 +295,10 @@ mod lexer_test {
         let result = execute(r#"
         -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
-        C = "p" | "t" | "k" | "f"
-            -- `|`の前で改行することが可能
-            | "s" | "h" | "l" | "y"
         T = "p" | "t" | "k"
+        C = T | "f" | "s" | "h"
+            -- `|`の前で改行することが可能
+            | "l" | "y"
 
         -- `->`,`when`,`and`,`or`の前後で改行することが可能
         ^ "s" "k" V -> "s" @3

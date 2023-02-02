@@ -203,7 +203,10 @@ mod lib_test {
 
     fn execute(words: &Vec<String>, s: &str) -> Vec<Result<String, Error>> {
         match Data::try_from(s) {
-            Ok(data) => crate::execute_many(words, &data),
+            Ok(data) => {
+                println!("{:?}", data);
+                crate::execute_many(words, &data)
+            },
             Err(err) => vec![Err(err)],
         }
     }

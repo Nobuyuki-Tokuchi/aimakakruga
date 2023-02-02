@@ -157,19 +157,6 @@ fn parse_define_patterns(tokens: &[TokenType], index: usize) -> Result<(Vec<Vec<
                 &TokenType::VerticalBar => {
                     next_index = next_index + 1;
                 },
-                &TokenType::NewLine => {
-                    next_index = next_index + 1;
-                    while let Some(TokenType::NewLine) = tokens.get(next_index) {
-                        next_index = next_index + 1;
-                    }
-
-                    if let Some(TokenType::VerticalBar) = tokens.get(next_index) {
-                        next_index = next_index + 1;
-                    } else {
-                        next_index = next_index - 1;
-                        break;
-                    }
-                }
                 _ => break,
             }
         } else {
@@ -225,26 +212,16 @@ fn parse_shift(tokens: &[TokenType], index: usize) -> Result<(Statement, usize),
     }
 
     let (when_, next_index) = if let Some(TokenType::When) = tokens.get(next_index) {
-        let (tmp, mut next_index) = parse_when(&tokens, next_index + 1).map(|(w, i)| (Some(w), i))?;
-
-        while let Some(TokenType::NewLine) = tokens.get(next_index) {
-            next_index = next_index + 1;
-        }
-    
-        (tmp, next_index)
+        parse_when(&tokens, next_index + 1).map(|(w, i)| (Some(w), i))?
     } else {
         (None, next_index)
     };
 
-    let mut next_index = match tokens.get(next_index) {
+    let next_index = match tokens.get(next_index) {
         Some(TokenType::RightArrow) => next_index + 1,
         Some(other) => return Err(Error::InvalidToken(String::from("shift statement"), other.to_string(), next_index)),
         None => return Err(Error::EndOfToken(String::from("shift statement"), next_index))
     };
-
-    while let Some(TokenType::NewLine) = tokens.get(next_index) {
-        next_index = next_index + 1;
-    }
 
     let (rhs, next_index) = parse_convert_pattern(&tokens, next_index)?;
 
@@ -275,19 +252,6 @@ fn parse_match_patterns(tokens: &[TokenType], index: usize) -> Result<(Vec<Shift
                 &TokenType::VerticalBar => {
                     next_index = next_index + 1;
                 },
-                &TokenType::NewLine => {
-                    next_index = next_index + 1;
-                    while let Some(TokenType::NewLine) = tokens.get(next_index) {
-                        next_index = next_index + 1;
-                    }
-
-                    if let Some(TokenType::VerticalBar) = tokens.get(next_index) {
-                        next_index = next_index + 1;
-                    } else {
-                        next_index = next_index - 1;
-                        break;
-                    }
-                }
                 _ => break,
             }
         } else {
@@ -490,30 +454,6 @@ fn parse_when(tokens: &[TokenType], index: usize) -> Result<(Vec<LogicalNode>, u
                     }
                     stack_operator.push(operator);
                 },
-                TokenType::NewLine => {
-                    let mut is_end = true;
-                    if let Some(token) = tokens.get(next_index - 1) {
-                        match token {
-                            TokenType::NewLine | TokenType::When => is_end = false,
-                            TokenType::LogicalAnd | TokenType::LogicalOr => is_end = false,
-                            TokenType::LeftCircle | TokenType::RightCircle => is_end = false,
-                            _ => (),
-                        }
-                    }
-
-                    if let Some(token) = tokens.get(next_index + 1) {
-                        match token {
-                            TokenType::NewLine | TokenType::When => is_end = false,
-                            TokenType::LogicalAnd | TokenType::LogicalOr => is_end = false,
-                            TokenType::LeftCircle | TokenType::RightCircle => is_end = false,
-                            _ => (),
-                        }
-                    }
-
-                    if is_end {
-                        break;
-                    }
-                }
                 TokenType::LeftCircle => {
                     if !stack_value.is_empty() {
                         return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
@@ -663,10 +603,10 @@ mod parser_test {
         let result = execute(r#"
         -- 一行コメント
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
-        C = "p" | "t" | "k" | "f"
-            -- `|`の前で改行することが可能
-            | "s" | "h" | "l" | "y"
         T = "p" | "t" | "k"
+        C = T | "f" | "s" | "h"
+            -- `|`の前で改行することが可能
+            | "l" | "y"
 
         -- `->`,`when`,`and`,`or`の前後で改行することが可能
         ^ "s" "k" V -> "s" @3
