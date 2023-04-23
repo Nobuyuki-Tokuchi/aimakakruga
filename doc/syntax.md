@@ -1,5 +1,5 @@
 # aimakakrúgáの構文
-バージョン0.0.5時点
+バージョン0.0.6時点
 
 ``` ebnf
 programme = { statements };
@@ -11,9 +11,10 @@ define_variable = variable, "=", pattern, { "|", pattern };
 pattern = value, { value };
 value = literal | variable;
 
-shift_word = match_pattern, { "|", match_pattern }, [ "when", logic_or ], "->", convert_pattern;
+shift_word = match_patterns, [ "when", logic_or ], "->", convert_pattern;
+match_patterns = match_pattern, { "|", match_pattern };
 match_pattern = [ "^" ], match_value, { match_value }, [ "$" ];
-match_value = literal | variable | any_char;
+match_value = literal | variable | any_char | "(", match_patterns, ")";
 logic_or = logic_and, { "or", logic_and };
 logic_and = logic_not, { "and", logic_not };
 compare = ([ "not" ], compare_value, compare_op, compare_value) | (left_like_value, "like", right_like_pattern) | ([ "not" ], "(", logic_or, ")");

@@ -23,6 +23,7 @@ pub(crate) enum Value {
     Reference(usize),
     Part,
     AnyChar,
+    Inner(Box<Vec<ShiftPattern>>),
 }
 
 #[derive(Debug, Clone)]
@@ -101,7 +102,7 @@ pub(crate) fn parse(tokens: &Vec<TokenType>) -> Result<Vec<Statement>, Error> {
                     statements.push(statement);
                     index = next_index;
                 },
-                TokenType::Value(_) | TokenType::Circumflex => {
+                TokenType::Value(_) | TokenType::Circumflex | TokenType::LeftCircle => {
                     let (statement, next_index) = parse_shift(&tokens, index)?;
 
                     statements.push(statement);
@@ -323,6 +324,18 @@ fn parse_shift_value(tokens: &[TokenType], index: usize) -> Result<(Value, usize
             TokenType::Variable(value) => Ok((Value::Variable(value.clone()), index + 1)),
             TokenType::Reference(value) => Ok((Value::Reference(*value), index + 1)),
             TokenType::AnyChar => Ok((Value::AnyChar, index + 1)),
+            TokenType::LeftCircle => {
+                let (value, next_index) = parse_match_patterns(tokens, index + 1)?;
+                if let Some(token) = tokens.get(next_index) {
+                    if *token == TokenType::RightCircle {
+                        Ok((Value::Inner(Box::new(value)), next_index + 1))
+                    } else {
+                        Err(Error::InvalidToken(String::from("value"), token.to_string(), index))
+                    }
+                } else {
+                    return Err(Error::EndOfToken(String::from("shift value"), index))
+                }
+            }
             _ => Err(Error::InvalidToken(String::from("value"), token.to_string(), index)),
         }
     } else {

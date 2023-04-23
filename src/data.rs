@@ -115,7 +115,7 @@ fn create_regex_str(operators: &Vec<Statement>) -> Result<Vec<ReplacePattern>, E
                 let mut from_list = Vec::new();
             
                 for pattern in shift.lhs.iter() {
-                    from_list.push(create_from_pattern(pattern, &variables)?);
+                    from_list.push(create_from_pattern(pattern, &variables, false)?);
                 }
 
                 let when = match &shift.when {
@@ -135,16 +135,24 @@ fn create_regex_str(operators: &Vec<Statement>) -> Result<Vec<ReplacePattern>, E
     Ok(regex_str)
 }
 
-fn create_from_pattern(pattern: &ShiftPattern, variables: &HashMap<String, Rc<DefineStruct>>) -> Result<String, Error> {
+fn create_from_pattern(pattern: &ShiftPattern, variables: &HashMap<String, Rc<DefineStruct>>, anonymous_pattern: bool) -> Result<String, Error> {
     let mut pattern_str = String::default();
-    let values = convert_from_values(&pattern.values, variables)?;
+    let values = convert_from_values(&pattern.values, variables, anonymous_pattern)?;
 
     if pattern.mode == Mode::Exact || pattern.mode == Mode::Forward {
         pattern_str.push('^');
     }
 
     for (index, value) in values.iter().enumerate() {
-        let regex = format!("(?P<x{}>{})", index, value);
+        let regex = if anonymous_pattern {
+            if value.contains("|") {
+                format!("({})", value)
+            } else {
+                value.to_string()
+            }
+        } else {
+            format!("(?P<x{}>{})", index, value)
+        };
         pattern_str.push_str(regex.as_str());
     }
 
@@ -155,7 +163,7 @@ fn create_from_pattern(pattern: &ShiftPattern, variables: &HashMap<String, Rc<De
     Ok(pattern_str)
 }
 
-fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<DefineStruct>>) -> Result<Vec<String>, Error> {
+fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<DefineStruct>>, anonymous_pattern: bool) -> Result<Vec<String>, Error> {
     let mut values_str = Vec::default();
     
     for value in values.iter() {
@@ -164,7 +172,7 @@ fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<Defin
             Value::Variable(var) => {
                 if let Some(data) = variables.get(var) {
                     let result: Vec<Result<String, Error>> = data.patterns.iter().map(|x| {
-                        convert_from_values(x, variables).map(|x| x.join(""))
+                        convert_from_values(x, variables, anonymous_pattern).map(|x| x.join(""))
                     }).collect();
 
                     if let Some(err) = result.iter().find_map(|x| x.as_ref().err()) {
@@ -173,7 +181,12 @@ fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<Defin
                         let result = result.iter().map(|x| {
                             x.as_ref().unwrap().as_str()
                         }).collect::<Vec<&str>>().join("|");
-                        format!("({})", result)
+
+                        if result.contains("|") {
+                            format!("({})", result)
+                        } else {
+                            result.to_string()
+                        }
                     }
                 } else {
                     return Err(Error::NotFoundVariable(var.to_owned()));
@@ -182,6 +195,23 @@ fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<Defin
             Value::Reference(index) => return Err(Error::ErrorMessage(format!("Invalid token: `@{}`", index + 1), None)),
             Value::Part => return Err(Error::ErrorMessage(format!("Invalid token: `{}`", common::PART_KEY), None)),
             Value::AnyChar => String::from("."),
+            Value::Inner(b) => {
+                let inner: Vec<Result<String, Error>> = b.iter().map(|x| create_from_pattern(x, variables, true)).collect();
+
+                if let Some(err) = inner.iter().find_map(|x| x.as_ref().err()) {
+                    return Err(err.to_owned());
+                } else {
+                    let inner = inner.iter().map(|x| {
+                        x.as_ref().unwrap().as_str()
+                    }).collect::<Vec<&str>>().join("|");
+
+                    if inner.contains("|") {
+                        format!("({})", inner)
+                    } else {
+                        inner.to_string()
+                    }
+                }
+            },
         };
 
         values_str.push(s);
@@ -201,6 +231,7 @@ fn create_to_pattern(pattern: &ShiftPattern) -> Result<String, Error> {
             Value::Reference(index) => pattern_str.push_str(&format!("${{x{}}}", index)),
             Value::Part => pattern_str.push_str(&format!("$0")),
             Value::AnyChar  => return Err(Error::ErrorMessage("Invalid token: `.`".to_string(), None)),
+            Value::Inner(_) => return Err(Error::ErrorMessage(format!("Invalid token: (..)"), None)),
         };
     }
 
@@ -222,7 +253,7 @@ fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStr
                         Value::Variable(var) => {
                             if let Some(data) = variables.get(var) {
                                 let result: Vec<Result<String, Error>> = data.patterns.iter().map(|x| {
-                                    convert_from_values(x, variables).map(|x| x.join(""))
+                                    convert_from_values(x, variables, false).map(|x| x.join(""))
                                 }).collect();
             
                                 if let Some(err) = result.iter().find_map(|x| x.as_ref().err()) {
@@ -232,7 +263,12 @@ fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStr
                                         x.as_ref().unwrap().as_str()
                                     }).collect::<Vec<&str>>().join("|");
                                     like_operand = true;
-                                    Value::Variable(format!("({})", result))
+
+                                    if result.contains("|") {
+                                        Value::Variable(format!("({})", result))
+                                    } else {
+                                        Value::Variable(result.to_string())
+                                    }
                                 }
                             } else {
                                 return Err(Error::NotFoundVariable(var.to_owned()));
@@ -243,6 +279,23 @@ fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStr
                         Value::AnyChar => {
                             like_operand = true;
                             Value::AnyChar
+                        },
+                        Value::Inner(b) => {
+                            let inner: Vec<Result<String, Error>> = b.iter().map(|x| create_from_pattern(x, variables, true)).collect();
+            
+                            if let Some(err) = inner.iter().find_map(|x| x.as_ref().err()) {
+                                return Err(err.to_owned());
+                            } else {
+                                let inner = inner.iter().map(|x| {
+                                    x.as_ref().unwrap().as_str()
+                                }).collect::<Vec<&str>>().join("|");
+
+                                if inner.contains("|") {
+                                    Value::Variable(format!("({})", inner))
+                                } else {
+                                    Value::Variable(inner.to_string())
+                                }
+                            }
                         },
                     };
                     values.push(value);

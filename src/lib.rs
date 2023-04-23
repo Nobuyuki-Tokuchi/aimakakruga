@@ -104,7 +104,10 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                         },
                         parser::Value::AnyChar => {
                             return Err(Error::InvalidToken("when expression".to_string(), ".".to_string(), 0));
-                        }
+                        },
+                        parser::Value::Inner(_)=> {
+                            return Err(Error::InvalidToken("when expression".to_string(), "inner".to_string(), 0));
+                        },
                     }
                 }
 
@@ -136,7 +139,10 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                         },
                         parser::Value::AnyChar => {
                             temp.push('.');
-                        }
+                        },
+                        parser::Value::Inner(_)=> {
+                            return Err(Error::InvalidToken("when expression".to_string(), "inner".to_string(), 0));
+                        },
                     }
                 }
 
@@ -297,4 +303,36 @@ mod lib_test {
         println!("{:?}", result);
         assert!(result.iter().all(|(_, x)| x.is_ok()));
     }
+
+
+    #[test]
+    fn shift_struct_left_circle() {
+        let words = vec![
+            String::from("skeasto"),
+            String::from("stella"),
+        ];
+        let result = execute(&words, r#"
+        (^ "st" | "sk") ("a" | "e" | "i" | "o" | "u" | "a" "i") -> "s" @2
+        "#);
+
+        let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
+        println!("{:?}", result);
+        assert!(result.iter().all(|(_, x)| x.is_ok()));
+    }
+
+    #[test]
+    fn shift_struct_left_circle2() {
+        let words = vec![
+            String::from("skeasto"),
+            String::from("stella"),
+        ];
+        let result = execute(&words, r#"
+        ^ ("st" | "sk") (^ "e" | "o" $) -> "s" @2
+        "#);
+
+        let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
+        println!("{:?}", result);
+        assert!(result.iter().all(|(s, x)| x.is_ok() && s.as_str() == x.as_ref().unwrap().as_str()));
+    }
+
 }
