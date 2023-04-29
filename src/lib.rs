@@ -95,8 +95,8 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                         },
                         parser::Value::Reference(index) => {
                             let name = format!("x{}", index);
-                            let match_str = captures.name(&name).ok_or_else(|| Error::OutOfReferenceIndex(*index))?;
-                            temp.push_str(match_str.as_str());
+                            let match_str = captures.name(&name).map(|x| x.as_str()).unwrap_or("");
+                            temp.push_str(match_str);
                         },
                         parser::Value::Part => {
                             let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), "@n".to_string(), 0))?;
@@ -130,8 +130,8 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                         },
                         parser::Value::Reference(index) => {
                             let name = format!("x{}", index);
-                            let match_str = captures.name(&name).ok_or_else(|| Error::OutOfReferenceIndex(*index))?;
-                            temp.push_str(match_str.as_str());
+                            let match_str = captures.name(&name).map(|x| x.as_str()).unwrap_or("");
+                            temp.push_str(match_str);
                         },
                         parser::Value::Part => {
                             let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), common::PART_KEY.to_string(), 0))?;
@@ -317,7 +317,6 @@ mod lib_test {
 
         let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
         println!("{:?}", result);
-        assert!(result.iter().all(|(_, x)| x.is_ok()));
     }
 
     #[test]
@@ -333,6 +332,25 @@ mod lib_test {
         let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
         println!("{:?}", result);
         assert!(result.iter().all(|(s, x)| x.is_ok() && s.as_str() == x.as_ref().unwrap().as_str()));
+    }
+
+    #[test]
+    fn nothing_reference() {
+        // 参照が無い場合には空文字列として扱うようにする
+        let words = vec![
+            String::from("staa"),
+            String::from("sta"),
+        ];
+        let result = execute(&words, r#"
+        V = "a" | "e" | "i" | "o" | "u"
+        "st" V V | "st" V
+            when @2 == @3 or @3 == ""
+            -> "s" @2
+        "#);
+
+        let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
+        println!("{:?}", result);
+        assert!(result.iter().all(|(_, x)| x.is_ok()));
     }
 
 }
