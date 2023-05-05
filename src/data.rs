@@ -43,9 +43,9 @@ impl Data {
         P: AsRef<std::path::Path>
     {
         let text = {
-            let mut f = File::open(filename).map_err(|_| Error::ErrorMessage(String::from("file not found"), None))?;
+            let mut f = File::open(filename).map_err(|_| Error::message("file not found"))?;
             let mut contents = String::new();
-            f.read_to_string(&mut contents).map_err(|x| Error::ErrorMessage(x.to_string(), None))?;
+            f.read_to_string(&mut contents).map_err(|x| Error::message(x.to_string()))?;
             contents
         };
 
@@ -189,11 +189,11 @@ fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<Defin
                         }
                     }
                 } else {
-                    return Err(Error::NotFoundVariable(var.to_owned()));
+                    return Err(Error::NotFoundVariable(var.to_owned(), None));
                 }
             },
-            Value::Reference(index) => return Err(Error::ErrorMessage(format!("Invalid token: `@{}`", index + 1), None)),
-            Value::Part => return Err(Error::ErrorMessage(format!("Invalid token: `{}`", common::PART_KEY), None)),
+            Value::Reference(index) => return Err(Error::invalid("match pattern", format!("`@{}`", index + 1))),
+            Value::Part => return Err(Error::invalid("match pattern", common::PART_KEY.to_string())),
             Value::AnyChar => String::from("."),
             Value::Inner(b) => {
                 let inner: Vec<Result<String, Error>> = b.iter().map(|x| create_from_pattern(x, variables, true)).collect();
@@ -227,11 +227,11 @@ fn create_to_pattern(pattern: &ShiftPattern) -> Result<String, Error> {
     for value in pattern.values.iter() {
         match value {
             Value::Literal(s) => pattern_str.push_str(s),
-            Value::Variable(var) => return Err(Error::ErrorMessage(format!("Invalid token: `{}`", var), None)),
+            Value::Variable(var) => return Err(Error::message(format!("Invalid token: `{}`", var))),
             Value::Reference(index) => pattern_str.push_str(&format!("${{x{}}}", index)),
             Value::Part => pattern_str.push_str(&format!("$0")),
-            Value::AnyChar  => return Err(Error::ErrorMessage("Invalid token: `.`".to_string(), None)),
-            Value::Inner(_) => return Err(Error::ErrorMessage(format!("Invalid token: (..)"), None)),
+            Value::AnyChar  => return Err(Error::message("Invalid token: `.`")),
+            Value::Inner(_) => return Err(Error::message("Invalid token: (..)")),
         };
     }
 
@@ -271,7 +271,7 @@ fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStr
                                     }
                                 }
                             } else {
-                                return Err(Error::NotFoundVariable(var.to_owned()));
+                                return Err(Error::NotFoundVariable(var.to_owned(), None));
                             }
                         },
                         Value::Part => Value::Part,

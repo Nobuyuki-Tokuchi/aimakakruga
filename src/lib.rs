@@ -2,6 +2,7 @@ mod error;
 mod data;
 mod lexer;
 mod parser;
+mod token;
 mod common;
 
 use std::collections::HashMap;
@@ -99,14 +100,14 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                             temp.push_str(match_str);
                         },
                         parser::Value::Part => {
-                            let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), "@n".to_string(), 0))?;
+                            let match_str = captures.get(0).ok_or_else(|| Error::invalid("when expression", common::NOW_WORD_KEY))?;
                             temp.push_str(match_str.as_str());
                         },
                         parser::Value::AnyChar => {
-                            return Err(Error::InvalidToken("when expression".to_string(), ".".to_string(), 0));
+                            return Err(Error::invalid("when expression", "."));
                         },
                         parser::Value::Inner(_)=> {
-                            return Err(Error::InvalidToken("when expression".to_string(), "inner".to_string(), 0));
+                            return Err(Error::invalid("when expression", "inner"));
                         },
                     }
                 }
@@ -134,14 +135,14 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                             temp.push_str(match_str);
                         },
                         parser::Value::Part => {
-                            let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), common::PART_KEY.to_string(), 0))?;
+                            let match_str = captures.get(0).ok_or_else(|| Error::invalid("when expression", common::PART_KEY))?;
                             temp.push_str(match_str.as_str());
                         },
                         parser::Value::AnyChar => {
                             temp.push('.');
                         },
                         parser::Value::Inner(_)=> {
-                            return Err(Error::InvalidToken("when expression".to_string(), "inner".to_string(), 0));
+                            return Err(Error::invalid("when expression", "inner"));
                         },
                     }
                 }
@@ -159,7 +160,7 @@ fn check_when(captures: &regex::Captures, when: &[WhenValue], static_reference: 
                 stack.push(static_reference.get(common::NOW_WORD_KEY).unwrap().to_string());
             },
             WhenValue::Part => {
-                let match_str = captures.get(0).ok_or_else(|| Error::InvalidToken("when expression".to_string(), "$0".to_string(), 0))?;
+                let match_str = captures.get(0).ok_or_else(|| Error::invalid("when expression", common::PART_KEY))?;
                 stack.push(match_str.as_str().to_string());
             },
             WhenValue::Equal => {

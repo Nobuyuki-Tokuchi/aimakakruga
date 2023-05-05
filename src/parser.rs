@@ -1,8 +1,8 @@
 
 use std::cmp::Ordering;
 use std::rc::Rc;
-use crate::lexer::TokenType;
 use crate::error::Error;
+use crate::token::{Token, TokenType};
 
 #[derive(Debug, Clone)]
 pub(crate) enum Statement {
@@ -81,22 +81,22 @@ impl ShiftStruct {
     }
 }
 
-pub(crate) fn parse(tokens: &Vec<TokenType>) -> Result<Vec<Statement>, Error> {
+pub(crate) fn parse(tokens: &Vec<Token>) -> Result<Vec<Statement>, Error> {
     let mut statements = vec![];
 
     let mut index = 0;
     let length = tokens.len();
     while index < length {
-        if let Some(value) = tokens.get(index) {
-            match value {
+        if let Some(token) = tokens.get(index) {
+            match &token.tokentype {
                 TokenType::Variable(value) => {
                     let (statement, next_index) = if let Some(next) = tokens.get(index + 1) {
-                        match next {
-                            &TokenType::Bind => parse_define(value, tokens, index + 1),
+                        match next.tokentype {
+                            TokenType::Bind => parse_define(&value, tokens, index + 1),
                             _ => parse_shift(&tokens, index),
                         }?
                     } else {
-                        return Err(Error::EndOfToken(String::from("statement"), index))
+                        return Err(Error::end_of("statement"));
                     };
 
                     statements.push(statement);
@@ -108,54 +108,54 @@ pub(crate) fn parse(tokens: &Vec<TokenType>) -> Result<Vec<Statement>, Error> {
                     statements.push(statement);
                     index = next_index;
                 },
-                TokenType::Unknown(value) => {
-                    return Err(Error::UnknownToken(value.clone(), index));
+                TokenType::Unknown(_) => {
+                    return Err(Error::unknown_with(&token.tokentype, token.row, token.column));
                 },
                 TokenType::NewLine | TokenType::Semicolon => {
                     index = index + 1;
                 }
                 _ => {
-                    return Err(Error::InvalidToken(String::from("statement"), value.to_string(), index));
+                    return Err(Error::invalid_with("statement", &token.tokentype, token.row, token.column));
                 }
             }
         } else {
-            return Err(Error::ErrorMessage(format!("End of token in statement. length: {}, index: {}", length, index), None));
+            return Err(Error::end_of("statement"));
         }
     }
     
     Ok(statements)
 }
 
-fn parse_define(name: &str, tokens: &[TokenType], index: usize) -> Result<(Statement, usize), Error> {
+fn parse_define(name: &str, tokens: &[Token], index: usize) -> Result<(Statement, usize), Error> {
     let next_index = match tokens.get(index) {
-        Some(TokenType::Bind) => index + 1,
-        Some(other) => return Err(Error::InvalidToken(String::from("define variable"), other.to_string(), index)),
-        None => return Err(Error::EndOfToken(String::from("define variable"), index))
+        Some(Token { row: _, column: _, tokentype: TokenType::Bind } ) => index + 1,
+        Some(other) => return Err(Error::invalid_with("define variable", &other.tokentype, other.row, other.column)),
+        None => return Err(Error::end_of("define variable"))
     };
 
     let (patterns, next_index) = parse_define_patterns(&tokens, next_index)?;
 
     if let Some(token) = tokens.get(next_index) {
-        if &TokenType::Semicolon == token || &TokenType::NewLine == token {
+        if TokenType::Semicolon == token.tokentype || TokenType::NewLine == token.tokentype {
             let statement = Statement::Define(Rc::new(DefineStruct::new(name, patterns)));
             Ok((statement, next_index + 1))
         } else {
-            Err(Error::InvalidToken(String::from("expression of define variable"), token.to_string(), index))
+            Err(Error::invalid_with("expression of define variable", &token.tokentype, token.row, token.column))
         }
     } else {
-        Err(Error::EndOfToken(String::from("expression of define variable"), index))
+        Err(Error::end_of("expression of define variable"))
     }
 }
 
-fn parse_define_patterns(tokens: &[TokenType], index: usize) -> Result<(Vec<Vec<Value>>, usize), Error> {
+fn parse_define_patterns(tokens: &[Token], index: usize) -> Result<(Vec<Vec<Value>>, usize), Error> {
     let mut patterns: Vec<Vec<Value>> = Vec::new();
     let (pattern, mut next_index) = parse_define_pattern(tokens, index)?;
     patterns.push(pattern);
 
     loop {
-        if let Some(value) = tokens.get(next_index) {
-            match value {
-                &TokenType::VerticalBar => {
+        if let Some(token) = tokens.get(next_index) {
+            match token.tokentype {
+                TokenType::VerticalBar => {
                     next_index = next_index + 1;
                 },
                 _ => break,
@@ -168,14 +168,21 @@ fn parse_define_patterns(tokens: &[TokenType], index: usize) -> Result<(Vec<Vec<
             patterns.push(pattern);
             next_index = index;
         } else {
-            return Err(Error::ErrorMessage(String::from("Next pattern is nothing in patterns"), Some(next_index)))
+            let next_token = tokens.get(next_index).or(tokens.last()).map(|x| (x.row, x.column));
+            let message = "Next pattern is nothing in patterns";
+
+            return if let Some((row, column)) = next_token {
+                Err(Error::message_with(message, row, column))
+            } else {
+                Err(Error::message(message))
+            }
         }
     }
 
     Ok((patterns, next_index))
 }
 
-fn parse_define_pattern(tokens: &[TokenType], index: usize) -> Result<(Vec<Value>, usize), Error> {
+fn parse_define_pattern(tokens: &[Token], index: usize) -> Result<(Vec<Value>, usize), Error> {
     let mut values = Vec::new();
 
     let (value, mut next_index) = parse_value(tokens, index)?;
@@ -193,64 +200,69 @@ fn parse_define_pattern(tokens: &[TokenType], index: usize) -> Result<(Vec<Value
     Ok((values, next_index))
 }
 
-fn parse_value(tokens: &[TokenType], index: usize) -> Result<(Value, usize), Error> {
+fn parse_value(tokens: &[Token], index: usize) -> Result<(Value, usize), Error> {
     if let Some(token) = tokens.get(index) {
-        match token {
+        match &token.tokentype {
             TokenType::Value(value) => Ok((Value::Literal(value.clone()), index + 1)),
             TokenType::Variable(value) => Ok((Value::Variable(value.clone()), index + 1)),
-            _ => Err(Error::InvalidToken(String::from("value"), token.to_string(), index)),
+            _ => Err(Error::invalid_with("value", &token.tokentype, token.row, token.column)),
         }
     } else {
-        Err(Error::EndOfToken(String::from("value"), index))
+        Err(Error::end_of("value"))
     }
 }
 
-fn parse_shift(tokens: &[TokenType], index: usize) -> Result<(Statement, usize), Error> {
+fn parse_shift(tokens: &[Token], index: usize) -> Result<(Statement, usize), Error> {
     let (lhs, mut next_index) = parse_match_patterns(&tokens, index)?;
     
-    while let Some(TokenType::NewLine) = tokens.get(next_index) {
+    while let Some(TokenType::NewLine) = tokens.get(next_index).map(|x| &x.tokentype) {
         next_index = next_index + 1;
     }
 
-    let (when_, next_index) = if let Some(TokenType::When) = tokens.get(next_index) {
+    let (when_, next_index) = if let Some(TokenType::When) = tokens.get(next_index).map(|x| &x.tokentype) {
         parse_when(&tokens, next_index + 1).map(|(w, i)| (Some(w), i))?
     } else {
         (None, next_index)
     };
 
     let next_index = match tokens.get(next_index) {
-        Some(TokenType::RightArrow) => next_index + 1,
-        Some(other) => return Err(Error::InvalidToken(String::from("shift statement"), other.to_string(), next_index)),
-        None => return Err(Error::EndOfToken(String::from("shift statement"), next_index))
+        Some(token) => {
+            if let TokenType::RightArrow = token.tokentype {
+                next_index + 1
+            } else {
+                return Err(Error::invalid_with("shift statement", &token.tokentype, token.row, token.column));
+            }
+        }
+        None => return Err(Error::end_of("shift statement"))
     };
 
     let (rhs, next_index) = parse_convert_pattern(&tokens, next_index)?;
 
     if let Some(Value::Variable(other)) = rhs.values.iter().find(|x| if let Value::Variable(_) = x { true } else { false }) {
-        return Err(Error::ErrorMessage(format!("Cannot use variable in right of shift statement: `{}`", other), Some(next_index)));
+        return Err(Error::message(format!("Cannot use variable in right of shift statement: `{}`", other)));
     }
 
     if let Some(token) = tokens.get(next_index) {
-        if &TokenType::Semicolon == token || &TokenType::NewLine == token {
+        if TokenType::Semicolon == token.tokentype || TokenType::NewLine == token.tokentype {
             let statement = Statement::Shift(ShiftStruct::new(lhs, when_, rhs));
             Ok((statement, next_index + 1))
         } else {
-            Err(Error::InvalidToken(String::from("expression of shift statement"), token.to_string(), next_index))
+            Err(Error::invalid_with("expression of shift statement", &token.tokentype, token.row, token.column))
         }
     } else {
-        Err(Error::EndOfToken(String::from("expression of shift statement"), next_index))
+        Err(Error::end_of("expression of shift statement"))
     }
 }
 
-fn parse_match_patterns(tokens: &[TokenType], index: usize) -> Result<(Vec<ShiftPattern>, usize), Error> {
+fn parse_match_patterns(tokens: &[Token], index: usize) -> Result<(Vec<ShiftPattern>, usize), Error> {
     let mut patterns: Vec<ShiftPattern> = Vec::new();
     let (pattern, mut next_index) = parse_match_pattern(tokens, index)?;
     patterns.push(pattern);
 
     loop {
-        if let Some(value) = tokens.get(next_index) {
-            match value {
-                &TokenType::VerticalBar => {
+        if let Some(token) = tokens.get(next_index) {
+            match token.tokentype {
+                TokenType::VerticalBar => {
                     next_index = next_index + 1;
                 },
                 _ => break,
@@ -263,23 +275,30 @@ fn parse_match_patterns(tokens: &[TokenType], index: usize) -> Result<(Vec<Shift
             patterns.push(pattern);
             next_index = index;
         } else {
-            return Err(Error::ErrorMessage(String::from("Next pattern is nothing in patterns"), Some(next_index)))
+            let next_token = tokens.get(next_index).or(tokens.last()).map(|x| (x.row, x.column));
+            let message = "Next pattern is nothing in patterns";
+
+            return if let Some((row, column)) = next_token {
+                Err(Error::message_with(message, row, column))
+            } else {
+                Err(Error::message(message))
+            }
         }
     }
 
     Ok((patterns, next_index))
 }
 
-fn parse_match_pattern(tokens: &[TokenType], index: usize) -> Result<(ShiftPattern, usize), Error> {
+fn parse_match_pattern(tokens: &[Token], index: usize) -> Result<(ShiftPattern, usize), Error> {
     let mut values = Vec::new();
 
     let (is_prefix, next_index) = if let Some(token) = tokens.get(index) {
-        match token {
+        match token.tokentype {
             TokenType::Circumflex => (true, index + 1),
             _ => (false, index),
         }
     } else {
-        return Err(Error::EndOfToken(String::from("pattern (prefix)"), index))
+        return Err(Error::end_of("pattern (prefix)"))
     };
 
     let (value, mut next_index) = parse_shift_value(tokens, next_index)?;
@@ -295,7 +314,7 @@ fn parse_match_pattern(tokens: &[TokenType], index: usize) -> Result<(ShiftPatte
     }
 
     let (is_suffix, next_index) = if let Some(token) = tokens.get(next_index) {
-        match token {
+        match token.tokentype {
             TokenType::Dollar => (true, next_index + 1),
             _ => (false, next_index),
         }
@@ -317,9 +336,9 @@ fn get_mode(is_prefix: bool, is_suffix: bool) -> Mode {
     }
 }
 
-fn parse_shift_value(tokens: &[TokenType], index: usize) -> Result<(Value, usize), Error> {
+fn parse_shift_value(tokens: &[Token], index: usize) -> Result<(Value, usize), Error> {
     if let Some(token) = tokens.get(index) {
-        match token {
+        match &token.tokentype {
             TokenType::Value(value) => Ok((Value::Literal(value.clone()), index + 1)),
             TokenType::Variable(value) => Ok((Value::Variable(value.clone()), index + 1)),
             TokenType::Reference(value) => Ok((Value::Reference(*value), index + 1)),
@@ -327,23 +346,23 @@ fn parse_shift_value(tokens: &[TokenType], index: usize) -> Result<(Value, usize
             TokenType::LeftCircle => {
                 let (value, next_index) = parse_match_patterns(tokens, index + 1)?;
                 if let Some(token) = tokens.get(next_index) {
-                    if *token == TokenType::RightCircle {
+                    if token.tokentype == TokenType::RightCircle {
                         Ok((Value::Inner(Box::new(value)), next_index + 1))
                     } else {
-                        Err(Error::InvalidToken(String::from("value"), token.to_string(), index))
+                        Err(Error::invalid_with("value", &token.tokentype, token.row, token.column))
                     }
                 } else {
-                    return Err(Error::EndOfToken(String::from("shift value"), index))
+                    Err(Error::end_of("shift value"))
                 }
             }
-            _ => Err(Error::InvalidToken(String::from("value"), token.to_string(), index)),
+            _ => Err(Error::invalid_with("value", &token.tokentype, token.row, token.column)),
         }
     } else {
-        Err(Error::EndOfToken(String::from("value"), index))
+        Err(Error::end_of("value"))
     }
 }
 
-fn parse_convert_pattern(tokens: &[TokenType], index: usize) -> Result<(ShiftPattern, usize), Error> {
+fn parse_convert_pattern(tokens: &[Token], index: usize) -> Result<(ShiftPattern, usize), Error> {
     let mut values = Vec::new();
 
     let (value, mut next_index) = parse_shift_value(tokens, index)?;
@@ -361,7 +380,7 @@ fn parse_convert_pattern(tokens: &[TokenType], index: usize) -> Result<(ShiftPat
     Ok((ShiftPattern { values, mode: Mode::None } , next_index))
 }
 
-fn parse_when(tokens: &[TokenType], index: usize) -> Result<(Vec<LogicalNode>, usize), Error> {
+fn parse_when(tokens: &[Token], index: usize) -> Result<(Vec<LogicalNode>, usize), Error> {
     let mut stack_operator: Vec<LogicalNode> = Vec::new();
     let mut stack_value: Vec<&TokenType> = Vec::new();
     let mut values: Vec<LogicalNode> = Vec::new();
@@ -369,51 +388,51 @@ fn parse_when(tokens: &[TokenType], index: usize) -> Result<(Vec<LogicalNode>, u
 
     loop {
         if let Some(token) = tokens.get(next_index) {
-            match token {
+            match token.tokentype {
                 TokenType::Circumflex => {
                     if stack_value.is_empty() {
-                        stack_value.push(token);
+                        stack_value.push(&token.tokentype);
                     } else {
-                        return Err(Error::InvalidToken(String::from("when expression"), TokenType::Dollar.to_string(), next_index));
+                        return Err(Error::invalid_with("when expression", TokenType::Dollar.to_string(), token.row, token.column));
                     }
                 },
                 TokenType::Dollar => {
-                    stack_value.push(token);
+                    stack_value.push(&token.tokentype);
                 },
                 TokenType::Value(_) | TokenType::Variable(_) | TokenType::Reference(_) => {
                     if let Some(TokenType::Dollar) = stack_value.last() {
-                        return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
+                        return Err(Error::invalid_with("when expression", &token.tokentype, token.row, token.column));
                     } else {
-                        stack_value.push(token);
+                        stack_value.push(&token.tokentype);
                     }
                 },
                 TokenType::Original => {
                     if !stack_value.is_empty(){
-                        return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
+                        return Err(Error::invalid_with("when expression", &token.tokentype, token.row, token.column));
                     }
                     values.push(LogicalNode::Original);
                 },
                 TokenType::NowForm => {
                     if !stack_value.is_empty(){
-                        return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
+                        return Err(Error::invalid_with("when expression", &token.tokentype, token.row, token.column));
                     }
                     values.push(LogicalNode::NowForm);
                 },
                 TokenType::Part => {
                     if !stack_value.is_empty(){
-                        return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
+                        return Err(Error::invalid_with("when expression", &token.tokentype, token.row, token.column));
                     }
                     values.push(LogicalNode::Part);
                 }
                 TokenType::Equal | TokenType::NotEqual | TokenType::LogicalAnd | TokenType::LogicalOr | TokenType::LogicalNot | TokenType::Like => {
-                    let operator = match token {
+                    let operator = match token.tokentype {
                         TokenType::Equal => LogicalNode::Equal,
                         TokenType::NotEqual => LogicalNode::NotEqual,
                         TokenType::LogicalAnd => LogicalNode::And,
                         TokenType::LogicalOr => LogicalNode::Or,
                         TokenType::LogicalNot => LogicalNode::Not,
                         TokenType::Like => LogicalNode::Like,
-                        _ => return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index))
+                        _ => return Err(Error::invalid_with("when expression", &token.tokentype, token.row, token.column))
                     };
 
                     if !stack_value.is_empty() {
@@ -469,7 +488,7 @@ fn parse_when(tokens: &[TokenType], index: usize) -> Result<(Vec<LogicalNode>, u
                 },
                 TokenType::LeftCircle => {
                     if !stack_value.is_empty() {
-                        return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
+                        return Err(Error::invalid_with("when expression", &token.tokentype, token.row, token.column));
                     }
 
                     stack_operator.push(LogicalNode::LeftCircle);
@@ -519,7 +538,7 @@ fn parse_when(tokens: &[TokenType], index: usize) -> Result<(Vec<LogicalNode>, u
                                 _ => values.push(node),
                             }
                         } else {
-                            return Err(Error::InvalidToken(String::from("when expression"), token.to_string(), next_index));
+                            return Err(Error::invalid_with("when expression", &token.tokentype, token.row, token.column));
                         }
                     }
                 }
@@ -560,12 +579,12 @@ fn parse_when(tokens: &[TokenType], index: usize) -> Result<(Vec<LogicalNode>, u
             values.push(LogicalNode::Operand(ShiftPattern { values: logic_values, mode: get_mode(is_prefix, is_suffix) }));
         }
         if values.is_empty() {
-            return Err(Error::EndOfToken(String::from("when expression"), next_index));
+            return Err(Error::end_of("when expression"));
         }
         stack_operator.reverse();
         values.append(&mut stack_operator);
     } else if values.is_empty() {
-        return Err(Error::EndOfToken(String::from("when expression"), next_index));
+        return Err(Error::end_of("when expression"));
     }
 
     Ok((values, next_index))
@@ -607,7 +626,7 @@ mod parser_test {
     use crate::parser::*;
 
     fn execute(s: &str) -> Result<Vec<Statement>, Error> {
-        let tokens = lexer(&s);
+        let tokens = lexer(s);
         parse(&tokens)
     }
 
