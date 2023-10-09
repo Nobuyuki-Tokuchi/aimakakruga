@@ -9,9 +9,9 @@ def_function = def_function_name, "\n", statements;
 def_function_name = "[", (function_name | private_function_name), "]";
 function_name = variable;
 private_function_name = "#" variable;
-statements = line_comment | condition | (statement, { ";" statement }, [ ";" ]);
+statements = (line_comment | condition), statements | (statement, { ";" statement }, [ ";" ]);
 statement = define_variable | shift_word | call_function;
-condition = "if", compare, "{", statements, "}", [ { "elif", "{", statements, "}" } ], "else", "{" statements "}"; 
+condition = "if", compare, "{", statements, "}", [ { "elif", compare, "{", statements, "}" } ], [ "else", "{" statements "}" ]; 
 
 define_variable = variable, "=", pattern, { "|", pattern };
 pattern = value, { value };

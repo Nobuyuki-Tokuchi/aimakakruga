@@ -46,7 +46,7 @@ pub(crate) fn lexer(text: impl Into<String>) -> Vec<Token> {
             }
         } else {
             match c {
-                '|' | ';' | '^' | '/' | '$' | '(' | ')' | '.' => {
+                '|' | ';' | '^' | '/' | '$' | '(' | ')' | '.' | '[' | ']' | '{' | '}' | '#' => {
                     if !buffer.is_empty() {
                         let token = String::from_iter(buffer.iter());
                         tokens.push(get_value(row, column, &token));
@@ -170,19 +170,45 @@ pub(crate) fn lexer(text: impl Into<String>) -> Vec<Token> {
                 match ret_tokens.last() {
                     Some(Token{
                         row: _, column: _,
-                        tokentype: TokenType::LeftCircle | TokenType::Like | TokenType::LogicalAnd | TokenType::LogicalOr | TokenType::NewLine | TokenType::RightArrow | TokenType::Semicolon | TokenType::When
+                        tokentype:
+                            TokenType::LeftCircle
+                            | TokenType::RightCircle
+                            | TokenType::Like
+                            | TokenType::LogicalAnd
+                            | TokenType::LogicalOr
+                            | TokenType::NewLine
+                            | TokenType::RightArrow
+                            | TokenType::Semicolon
+                            | TokenType::When
+                            | TokenType::If
+                            | TokenType::Elif
+                            | TokenType::Else
+                            | TokenType::LeftBrace
+                            | TokenType::RightBrace
                     }) => (),
                     None => (),
                     _ => ret_tokens.push(token),
                 }
             },
-            TokenType::LeftCircle | TokenType::Like | TokenType::LogicalAnd | TokenType::LogicalOr | TokenType::RightArrow | TokenType::Semicolon | TokenType::VerticalBar | TokenType::When => {
+            TokenType::LeftCircle
+            | TokenType::RightCircle
+            | TokenType::Like
+            | TokenType::LogicalAnd
+            | TokenType::LogicalOr
+            | TokenType::RightArrow
+            | TokenType::Semicolon
+            | TokenType::VerticalBar
+            | TokenType::When
+            | TokenType::Elif
+            | TokenType::Else
+            | TokenType::LeftBrace
+            | TokenType::RightBrace => {
                 if let Some(Token{ row: _, column: _, tokentype: TokenType::NewLine }) = ret_tokens.last() {
                     ret_tokens.pop();
                 }
 
                 ret_tokens.push(token);
-            }
+            },
             _ => ret_tokens.push(token),
         }
     }
@@ -191,12 +217,18 @@ pub(crate) fn lexer(text: impl Into<String>) -> Vec<Token> {
 }
 
 fn get_value(row: u64, column: u64, value: &str) -> Token {
+    let column = column - u64::try_from(value.len()).unwrap();
+
     match value {
         "when" => Token::new(row, column, TokenType::When),
         "and" => Token::new(row, column, TokenType::LogicalAnd),
         "or" => Token::new(row, column, TokenType::LogicalOr),
         "not" => Token::new(row, column, TokenType::LogicalNot),
         "like" => Token::new(row, column, TokenType::Like),
+        "if" => Token::new(row, column, TokenType::If),
+        "elif" => Token::new(row, column, TokenType::Elif),
+        "else" => Token::new(row, column, TokenType::Else),
+        "call" => Token::new(row, column, TokenType::Call),
         _ => {
             if value.starts_with("@") {
                 if let Some(x) = value.get(1..) {
@@ -239,6 +271,11 @@ fn get_tokentype(row: u64, column: u64, value: char) -> Token {
         '(' => Token::new(row, column, TokenType::LeftCircle),
         ')' => Token::new(row, column, TokenType::RightCircle),
         '.' => Token::new(row, column, TokenType::AnyChar),
+        '{' => Token::new(row, column, TokenType::LeftBrace),
+        '}' => Token::new(row, column, TokenType::RightBrace),
+        '[' => Token::new(row, column, TokenType::LeftBracket),
+        ']' => Token::new(row, column, TokenType::RightBracket),
+        '#' => Token::new(row, column, TokenType::NumberSign),
         _ => Token::unknown(row, column, value),
     }
 }
@@ -255,6 +292,7 @@ mod lexer_test {
     fn default() {
         let result = execute(r#"
         -- 一行コメント
+        [main]
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
         T = "p" | "t" | "k"
         C = T | "f" | "s" | "h"
@@ -299,6 +337,7 @@ mod lexer_test {
     fn use_semicolon() {
         let result = execute(r#"
         -- 一行コメント
+        [main]
         V = "a" | "e" | "i" | "o" | "u" | "a" "i"
         T = "p" | "t" | "k"; C = T | "f" | "s" | "h" 
             -- `|`の前で改行することが可能
@@ -317,6 +356,29 @@ mod lexer_test {
                 not (@0 like @1 @2 "a" $ or @0 like @1 @2 "u" $)
             ->
                 "s" @3;
+        "#);
+
+        println!("{:?}", result);
+        
+        let unknown_tokens: Vec<(usize, &Token)> = result.iter().enumerate().filter(|(_, x)| {
+            match x.tokentype {
+                TokenType::Unknown(_) => true,
+                _ => false
+            }
+        }).collect();
+
+        println!("{:?}", unknown_tokens);
+        assert!(unknown_tokens.is_empty());
+    }
+    
+    #[test]
+    fn if_statement() {
+        let result = execute(r#"
+            [main]
+            V = "a" | "e" | "i" | "o" | "u"
+            if @2 == @3 or @3 == "" {
+                "st" V V | "st" V -> "s" @2
+            }
         "#);
 
         println!("{:?}", result);

@@ -3,22 +3,30 @@ use std::{collections::HashMap, rc::Rc};
 
 use crate::error::Error;
 use crate::lexer::lexer;
-use crate::{parser::*, common};
+use crate::{parser::{*, self}, common};
 
 #[derive(Debug, Clone)]
 pub struct Data {
-    replace_patterns: Vec<ReplacePattern>,
+    export_functions: HashMap<String, Vec<Statement>>,
+    internal_functions: HashMap<String, Vec<Statement>>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ReplacePattern {
+pub(crate) enum Statement {
+    Shift(Shift),
+    If(Vec<ConditionValue>, Vec<Statement>),
+    Call(bool, String),
+} 
+
+#[derive(Debug, Clone)]
+pub(crate) struct Shift {
     pub from_list: Vec<String>,
     pub to: String,
-    pub when: Option<Vec<WhenValue>>,
+    pub when: Option<Vec<ConditionValue>>,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum WhenValue {
+pub(crate) enum ConditionValue {
     And,
     Or,
     Not,
@@ -34,8 +42,12 @@ pub(crate) enum WhenValue {
 
 
 impl Data {
-    pub(crate) fn get_replace_patterns_ref(&self) -> &Vec<ReplacePattern> {
-        &self.replace_patterns
+    pub(crate) fn get_export_ref(&self, name: impl Into<String>) -> Option<&Vec<Statement>> {
+        self.export_functions.get(&name.into())
+    }
+
+    pub(crate) fn get_internal_ref(&self, name: impl Into<String>) -> Option<&Vec<Statement>> {
+        self.internal_functions.get(&name.into())
     }
 
     pub fn read_file<P>(filename: P) -> Result<Self, Error>
@@ -70,9 +82,10 @@ impl TryFrom<&str> for Data {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let tokens = lexer(value);
         parse(&tokens).and_then(|x| {
-            create_regex_str(&x)
-        }).map(|x| Self {
-            replace_patterns: x,
+            create_data(&x)
+        }).map(|(export_functions, internal_functions)| Self {
+            export_functions,
+            internal_functions
         })
     }
 }
@@ -101,41 +114,80 @@ impl std::str::FromStr for Data {
     }
 }
 
-fn create_regex_str(operators: &Vec<Statement>) -> Result<Vec<ReplacePattern>, Error> {
-    let mut variables: HashMap<String, Rc<DefineStruct>> = HashMap::new();
-    let mut regex_str: Vec<ReplacePattern> = Vec::new();
+fn create_data(functions: &Vec<Function>) -> Result<(HashMap<String, Vec<Statement>>, HashMap<String, Vec<Statement>>), Error> {
+    let mut export_functions: HashMap<String, Vec<Statement>> = HashMap::new();
+    let mut internal_functions: HashMap<String, Vec<Statement>> = HashMap::new();
 
-    for operator in operators.iter() {
-        match operator {
-            Statement::Define(data) => {
-                variables.insert(data.name.to_string(), Rc::clone(&data));
-            },
-            Statement::Shift(shift) => {
-                let to = create_to_pattern(&shift.rhs)?;
-                let mut from_list = Vec::new();
-            
-                for pattern in shift.lhs.iter() {
-                    from_list.push(create_from_pattern(pattern, &variables, false)?);
-                }
-
-                let when = match &shift.when {
-                    Some(when) => Some(create_when(&when, &variables)?),
-                    None => None,
-                };
-
-                regex_str.push(ReplacePattern {
-                    from_list,
-                    to,
-                    when,
-                });
-            },
+    for function in functions.iter() {
+        let name = function.name.to_owned();
+        let statements = from_function(function)?;
+        if function.is_private {
+            internal_functions.insert(name, statements);
+        } else {
+            export_functions.insert(name, statements);
         }
     }
 
-    Ok(regex_str)
+    Ok((export_functions, internal_functions))
 }
 
-fn create_from_pattern(pattern: &ShiftPattern, variables: &HashMap<String, Rc<DefineStruct>>, anonymous_pattern: bool) -> Result<String, Error> {
+fn from_function(operator: &Function) -> Result<Vec<Statement>, Error> {
+    let mut variables: HashMap<String, Rc<DefineInfo>> = HashMap::new();
+    let mut statements = Vec::new();
+
+    for statement in operator.statements.iter() {
+        create_statement(statement, &mut statements, &mut variables)?;
+    }
+
+    Ok(statements)
+}
+
+fn create_statement(statement: &parser::Statement, statements: &mut Vec<Statement>, variables: &mut HashMap<String, Rc<DefineInfo>>) -> Result<(), Error> {
+    match statement {
+        parser::Statement::DefineVariable(define) => {
+            variables.insert(define.name.to_owned(), Rc::clone(&define));
+        },
+        parser::Statement::Shift(shift) => {
+            let to = create_to_pattern(&shift.rhs)?;
+            let mut from_list = Vec::new();
+        
+            for pattern in shift.lhs.iter() {
+                from_list.push(create_from_pattern(pattern, &variables, false)?);
+            }
+
+            let when = match &shift.when {
+                Some(when) => Some(create_condition(&when, variables)?),
+                None => None,
+            };
+
+            statements.push(Statement::Shift(Shift {
+                from_list,
+                to,
+                when
+            }));
+        },
+        parser::Statement::If(logical_nodes, parser_statements) => {
+            let condition = create_condition(logical_nodes, variables)?;
+            let mut local_statements = Vec::new();
+
+            for statement in parser_statements.iter() {
+                let mut local_variables = HashMap::new();
+                local_variables.clone_from(variables);
+
+                create_statement(statement, &mut local_statements, &mut local_variables)?;
+            }
+
+            statements.push(Statement::If(condition, local_statements))
+        },
+        parser::Statement::Call(is_private, name) => {
+            statements.push(Statement::Call(*is_private, name.to_owned()))
+        },
+    };
+
+    Ok(())
+}
+
+fn create_from_pattern(pattern: &Pattern, variables: &HashMap<String, Rc<DefineInfo>>, anonymous_pattern: bool) -> Result<String, Error> {
     let mut pattern_str = String::default();
     let values = convert_from_values(&pattern.values, variables, anonymous_pattern)?;
 
@@ -163,7 +215,7 @@ fn create_from_pattern(pattern: &ShiftPattern, variables: &HashMap<String, Rc<De
     Ok(pattern_str)
 }
 
-fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<DefineStruct>>, anonymous_pattern: bool) -> Result<Vec<String>, Error> {
+fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<DefineInfo>>, anonymous_pattern: bool) -> Result<Vec<String>, Error> {
     let mut values_str = Vec::default();
     
     for value in values.iter() {
@@ -221,7 +273,7 @@ fn convert_from_values(values: &Vec<Value>, variables: &HashMap<String, Rc<Defin
 }
 
 
-fn create_to_pattern(pattern: &ShiftPattern) -> Result<String, Error> {
+fn create_to_pattern(pattern: &Pattern) -> Result<String, Error> {
     let mut pattern_str = String::default();
 
     for value in pattern.values.iter() {
@@ -238,10 +290,10 @@ fn create_to_pattern(pattern: &ShiftPattern) -> Result<String, Error> {
     Ok(pattern_str)
 }
 
-fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStruct>>) -> Result<Vec<WhenValue>, Error> {
+fn create_condition(logical_nodes: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineInfo>>) -> Result<Vec<ConditionValue>, Error> {
     let mut result = Vec::new();
 
-    for node in when.iter() {
+    for node in logical_nodes.iter() {
         match node {
             LogicalNode::Operand(operand) => {
                 let mut values = Vec::new();
@@ -302,20 +354,20 @@ fn create_when(when: &Vec<LogicalNode>, variables: &HashMap<String, Rc<DefineStr
                 }
 
                 if like_operand {
-                    result.push(WhenValue::LikeOperand(values, operand.mode));
+                    result.push(ConditionValue::LikeOperand(values, operand.mode));
                 } else {
-                    result.push(WhenValue::Operand(values));
+                    result.push(ConditionValue::Operand(values));
                 }
             },
-            LogicalNode::And => result.push(WhenValue::And),
-            LogicalNode::Or => result.push(WhenValue::Or),
-            LogicalNode::Not => result.push(WhenValue::Not),
-            LogicalNode::Equal => result.push(WhenValue::Equal),
-            LogicalNode::NotEqual => result.push(WhenValue::NotEqual),
-            LogicalNode::Like => result.push(WhenValue::Like),
-            LogicalNode::Original => result.push(WhenValue::Original),
-            LogicalNode::Part => result.push(WhenValue::Part),
-            LogicalNode::NowForm => result.push(WhenValue::NowForm),
+            LogicalNode::And => result.push(ConditionValue::And),
+            LogicalNode::Or => result.push(ConditionValue::Or),
+            LogicalNode::Not => result.push(ConditionValue::Not),
+            LogicalNode::Equal => result.push(ConditionValue::Equal),
+            LogicalNode::NotEqual => result.push(ConditionValue::NotEqual),
+            LogicalNode::Like => result.push(ConditionValue::Like),
+            LogicalNode::Original => result.push(ConditionValue::Original),
+            LogicalNode::Part => result.push(ConditionValue::Part),
+            LogicalNode::NowForm => result.push(ConditionValue::NowForm),
             LogicalNode::LeftCircle => (),
         }
     }

@@ -85,6 +85,15 @@ pub(crate) enum TokenType {
     LeftCircle,
     RightCircle,
     AnyChar,
+    If,
+    Elif,
+    Else,
+    Call,
+    LeftBrace,
+    RightBrace,
+    LeftBracket,
+    RightBracket,
+    NumberSign,
 }
 
 impl Display for TokenType {
@@ -114,6 +123,15 @@ impl Display for TokenType {
             Self::LeftCircle => write!(f, "("),
             Self::RightCircle => write!(f, ")"),
             Self::AnyChar => write!(f, "."),
+            Self::If => write!(f, "if"),
+            Self::Elif => write!(f, "elif"),
+            Self::Else => write!(f, "else"),
+            Self::Call => write!(f, "call"),
+            Self::LeftBrace => write!(f, "{{"),
+            Self::RightBrace => write!(f, "}}"),
+            Self::LeftBracket => write!(f, "["),
+            Self::RightBracket => write!(f, "]"),
+            Self::NumberSign => write!(f, "#"),
         }
     }
 }
