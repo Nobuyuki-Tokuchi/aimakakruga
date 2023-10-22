@@ -732,4 +732,39 @@ mod lib_test {
         println!("{:?}", result);
         assert!(result.iter().all(|(_, x)| x.is_ok()));
     }
+
+    #[test]
+    fn two_func_with_if_statement() {
+        let words = vec![
+            String::from("skea"),
+            String::from("skio"),
+            String::from("simuno"),
+            String::from("staa"),
+            String::from("sta"),
+        ];
+        let data = r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        }
+
+        [main2]
+        V = "a" | "e" | "i" | "o" | "u"
+        "st" V V | "st" V
+            when @2 == @3 or @3 == ""
+            -> "s" @2
+        "#;
+
+        let result = execute(&words, "main", data);
+        let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
+        println!("{:?}", result);
+        assert!(result.iter().all(|(_, x)| x.is_ok()));
+
+        let result = execute(&words, "main2", data);
+        let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
+        println!("{:?}", result);
+        assert!(result.iter().all(|(_, x)| x.is_ok()));
+
+    }
 }

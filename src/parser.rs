@@ -192,10 +192,14 @@ fn parse_statements(tokens: &[Token], index: usize, is_local_statement: bool) ->
 
     let length = tokens.len();
     while next_index < length {
-        if matches!(tokens.get(next_index), Some(Token { row: _, column: _, tokentype: TokenType::NewLine | TokenType::Semicolon })) {
+        let check_token = tokens.get(next_index);
+        if matches!(check_token, Some(Token { row: _, column: _, tokentype: TokenType::NewLine | TokenType::Semicolon })) {
             next_index = next_index + 1;
-            continue
-        };
+            continue;
+        }
+        else if matches!(check_token, Some(Token { row: _, column: _, tokentype: TokenType::LeftBracket })) {
+            break;
+        }
 
         if let Some(Token { row, column, tokentype }) = tokens.get(next_index) {
             if matches!(tokentype, TokenType::Elif | TokenType::Else) {
@@ -1003,8 +1007,8 @@ mod parser_test {
         let result = execute(r#"
             [main]
             V = "a" | "e" | "i" | "o" | "u"
-            if @2 == @3 or @3 == "" {
-                "st" V V | "st" V -> "s" @2
+            if @3 == @4 or @4 == "" {
+                "st" V V | "st" V -> "s" @3
             }
         "#);
 
@@ -1104,6 +1108,26 @@ mod parser_test {
 
         println!("{:?}", result);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn two_func_with_if_statement() {
+        let result = execute(r#"
+            [main]
+            V = "a" | "e" | "i" | "o" | "u"
+            if @3 == @4 or @4 == "" {
+                "st" V V | "st" V -> "s" @2
+            }
+
+            [main2]
+            V = "a" | "e" | "i" | "o" | "u"
+            "st" V V | "st" V
+                when @2 == @3 or @3 == ""
+                -> "s" @2
+        "#);
+
+        println!("{:?}", result);
+        assert!(result.is_ok());
     }
 
 }
