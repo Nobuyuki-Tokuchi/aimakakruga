@@ -1,6 +1,6 @@
 [package]
 name = "aimakakruga"
-version = "0.0.7-beta"
+version = "0.0.7"
 edition = "2021"
 
 [dependencies]

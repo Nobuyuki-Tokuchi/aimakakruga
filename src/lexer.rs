@@ -393,4 +393,123 @@ mod lexer_test {
         println!("{:?}", unknown_tokens);
         assert!(unknown_tokens.is_empty());
     }
+
+    #[test]
+    fn if_else_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        } else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
+        }
+        "#);
+
+        println!("{:?}", result);
+        
+        let unknown_tokens: Vec<(usize, &Token)> = result.iter().enumerate().filter(|(_, x)| {
+            match x.tokentype {
+                TokenType::Unknown(_) => true,
+                _ => false
+            }
+        }).collect();
+
+        println!("{:?}", unknown_tokens);
+        assert!(unknown_tokens.is_empty());
+    }
+
+    #[test]
+    fn if_elif_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        } elif @n like "mu" {
+            "mu" -> "m"
+        }
+        "#);
+
+        println!("{:?}", result);
+        
+        let unknown_tokens: Vec<(usize, &Token)> = result.iter().enumerate().filter(|(_, x)| {
+            match x.tokentype {
+                TokenType::Unknown(_) => true,
+                _ => false
+            }
+        }).collect();
+
+        println!("{:?}", unknown_tokens);
+        assert!(unknown_tokens.is_empty());
+    }
+
+    #[test]
+    fn if_elif_else_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        } elif @n like "mu" {
+            "mu" -> "m"
+        } else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
+        }
+        "#);
+
+        println!("{:?}", result);
+        
+        let unknown_tokens: Vec<(usize, &Token)> = result.iter().enumerate().filter(|(_, x)| {
+            match x.tokentype {
+                TokenType::Unknown(_) => true,
+                _ => false
+            }
+        }).collect();
+
+        println!("{:?}", unknown_tokens);
+        assert!(unknown_tokens.is_empty());
+    }
+
+    #[test]
+    fn elif_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        elif @n like "mu" {
+            "mu" -> "m"
+        }
+        "#);
+
+        println!("{:?}", result);
+    }
+
+    #[test]
+    fn else_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u";
+        else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
+        }
+        "#);
+
+        println!("{:?}", result);
+    }
+
+    #[test]
+    fn elif_else_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u";
+        elif @n like "mu" {
+            "mu" -> "m"
+        } else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
+        }
+        "#);
+
+        println!("{:?}", result);
+    }
+
 }

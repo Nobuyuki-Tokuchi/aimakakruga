@@ -16,8 +16,8 @@ pub(crate) enum Statement {
     DefineVariable(Rc<DefineInfo>),
     Shift(ShiftInfo),
     If(Vec<LogicalNode>, Vec<Statement>),
-    // Elif(Vec<LogicalNode>, Vec<Statement>),
-    // Else(Vec<Statement>),
+    Elif(Vec<LogicalNode>, Vec<Statement>),
+    Else(Vec<Statement>),
     Call(bool, String),
 }
 
@@ -186,6 +186,7 @@ fn parse_function_name(tokens: &[Token], index: usize) -> Result<(bool, String, 
 }
 
 fn parse_statements(tokens: &[Token], index: usize, is_local_statement: bool) -> Result<(Vec<Statement>, usize), Error> {
+    let parse_point = "statements";
     let mut statements = Vec::new();
     let mut next_index = index;
 
@@ -195,6 +196,18 @@ fn parse_statements(tokens: &[Token], index: usize, is_local_statement: bool) ->
             next_index = next_index + 1;
             continue
         };
+
+        if let Some(Token { row, column, tokentype }) = tokens.get(next_index) {
+            if matches!(tokentype, TokenType::Elif | TokenType::Else) {
+                statements.last().and_then(|x| {
+                    if matches!(x, Statement::If(_, _) | Statement::Elif(_, _)) {
+                        Some(())
+                    } else {
+                        None
+                    }
+                }).ok_or(Error::invalid_with(parse_point, tokentype, *row, *column))?;
+            }
+        }
 
         match parse_statement(tokens, next_index, is_local_statement) {
             Ok((statement, index)) => {
@@ -226,6 +239,8 @@ fn parse_statement(tokens: &[Token], index: usize, is_local_statement: bool) -> 
         Some(Token { row, column, tokentype }) => {
             match tokentype {
                 TokenType::If => parse_if(tokens, index),
+                TokenType::Elif => parse_elif(tokens, index),
+                TokenType::Else => parse_else(tokens, index),
                 TokenType::Call => parse_call(tokens, index, is_local_statement),
                 TokenType::Value(_) | TokenType::Circumflex | TokenType::LeftCircle => parse_shift(tokens, index, is_local_statement),
                 TokenType::Variable(_) => {
@@ -277,6 +292,70 @@ fn parse_if(tokens: &[Token], index: usize) -> Result<(Statement, usize), Error>
     })?;
 
     Ok((Statement::If(condition, statements), next_index))
+}
+
+fn parse_elif(tokens: &[Token], index: usize) -> Result<(Statement, usize), Error> {
+    let parse_point = "elif statements";
+    let next_index = check_token(tokens, index, parse_point, |x| {
+        if let TokenType::Elif = x {
+            Some(index + 1)
+        } else {
+            None
+        }
+    })?;
+
+    let (condition, next_index) = parse_condition(tokens, next_index)?;
+
+    let next_index = check_token(tokens, next_index, parse_point, |x| {
+        if let TokenType::LeftBrace = x {
+            Some(next_index + 1)
+        } else {
+            None
+        }
+    })?;
+
+    let (statements, next_index) = parse_statements(tokens, next_index, true)?;
+
+    let next_index = check_token(tokens, next_index, parse_point, |x| {
+        if let TokenType::RightBrace = x {
+            Some(next_index + 1)
+        } else {
+            None
+        }
+    })?;
+
+    Ok((Statement::Elif(condition, statements), next_index))
+}
+
+fn parse_else(tokens: &[Token], index: usize) -> Result<(Statement, usize), Error> {
+    let parse_point = "else statements";
+    let next_index = check_token(tokens, index, parse_point, |x| {
+        if let TokenType::Else = x {
+            Some(index + 1)
+        } else {
+            None
+        }
+    })?;
+
+    let next_index = check_token(tokens, next_index, parse_point, |x| {
+        if let TokenType::LeftBrace = x {
+            Some(next_index + 1)
+        } else {
+            None
+        }
+    })?;
+
+    let (statements, next_index) = parse_statements(tokens, next_index, true)?;
+
+    let next_index = check_token(tokens, next_index, parse_point, |x| {
+        if let TokenType::RightBrace = x {
+            Some(next_index + 1)
+        } else {
+            None
+        }
+    })?;
+
+    Ok((Statement::Else(statements), next_index))
 }
 
 fn parse_call(tokens: &[Token], index: usize, is_local_statement: bool) -> Result<(Statement, usize), Error> {
@@ -932,4 +1011,99 @@ mod parser_test {
         println!("{:?}", result);
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn if_else_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        } else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
+        }
+        "#);
+
+        println!("{:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn if_elif_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        } elif @n like "mu" {
+            "mu" -> "m"
+        }
+        "#);
+
+        println!("{:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn if_elif_else_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        } elif @n like "mu" {
+            "mu" -> "m"
+        } else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
+        }
+        "#);
+
+        println!("{:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn elif_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u";
+        elif @n like "mu" {
+            "mu" -> "m"
+        }
+        "#);
+
+        println!("{:?}", result);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn else_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u";
+        else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
+        }
+        "#);
+
+        println!("{:?}", result);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn elif_else_statement() {
+        let result = execute(r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u";
+        elif @n like "mu" {
+            "mu" -> "m"
+        } else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
+        }
+        "#);
+
+        println!("{:?}", result);
+        assert!(result.is_err());
+    }
+
 }

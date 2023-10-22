@@ -24,15 +24,21 @@ pub fn execute(word: &str, data: &Data, name: &str) -> Result<String, Error> {
         None => return Err(Error::message("")), // TODO: 後でエラー内容を書く
     };
 
+    let mut execute_if_stack = Vec::default();
+
     for statement in use_statements.iter() {
+        if !matches!(statement, Statement::If(_, _) | Statement::Elif(_, _) | Statement::Else(_)) {
+            execute_if_stack.pop();
+        }
+
         let now_word = static_reference.get(common::NOW_WORD_KEY).unwrap().to_owned();
-        *static_reference.get_mut(common::NOW_WORD_KEY).unwrap() = execute_statement(&now_word, statement, data, &mut static_reference)?;
+        *static_reference.get_mut(common::NOW_WORD_KEY).unwrap() = execute_statement(&now_word, statement, data, &mut static_reference, &mut execute_if_stack)?;
     }
 
     Ok(static_reference.get(common::NOW_WORD_KEY).unwrap().clone())
 }
 
-fn execute_statement(now_word: &str, statement: &Statement, data: &Data, static_reference: &mut HashMap<String, String>) -> Result<String, Error> {
+fn execute_statement(now_word: &str, statement: &Statement, data: &Data, static_reference: &mut HashMap<String, String>, execute_if_stack: &mut Vec<bool>) -> Result<String, Error> {
     match statement {
         Statement::Shift(shift) => {
             execute_shift(now_word, shift, &static_reference)
@@ -41,7 +47,31 @@ fn execute_statement(now_word: &str, statement: &Statement, data: &Data, static_
             if check_if(now_word, condition, static_reference)? {
                 for statement in local_statements.iter() {
                     let now_word = static_reference.get(common::NOW_WORD_KEY).unwrap().to_owned();
-                    *static_reference.get_mut(common::NOW_WORD_KEY).unwrap() = execute_statement(&now_word, statement, data, static_reference)?;
+                    *static_reference.get_mut(common::NOW_WORD_KEY).unwrap() = execute_statement(&now_word, statement, data, static_reference, execute_if_stack)?;
+                }
+                execute_if_stack.push(false);
+            }
+            else {
+                execute_if_stack.push(true);
+            }
+
+            Ok(static_reference.get(common::NOW_WORD_KEY).unwrap().to_string())
+        },
+        Statement::Elif(condition, local_statements) => {
+            if *execute_if_stack.last().unwrap() && check_if(now_word, condition, static_reference)? {
+                for statement in local_statements.iter() {
+                    let now_word = static_reference.get(common::NOW_WORD_KEY).unwrap().to_owned();
+                    *static_reference.get_mut(common::NOW_WORD_KEY).unwrap() = execute_statement(&now_word, statement, data, static_reference, execute_if_stack)?;
+                }
+            }
+
+            Ok(static_reference.get(common::NOW_WORD_KEY).unwrap().to_string())
+        },
+        Statement::Else(local_statements) => {
+            if execute_if_stack.pop().unwrap() {
+                for statement in local_statements.iter() {
+                    let now_word = static_reference.get(common::NOW_WORD_KEY).unwrap().to_owned();
+                    *static_reference.get_mut(common::NOW_WORD_KEY).unwrap() = execute_statement(&now_word, statement, data, static_reference, execute_if_stack)?;
                 }
             }
 
@@ -52,6 +82,7 @@ fn execute_statement(now_word: &str, statement: &Statement, data: &Data, static_
                 (String::from(common::ORIGINAL_KEY), now_word.into()),
                 (String::from(common::NOW_WORD_KEY), now_word.into())
             ]);
+            let mut execute_if_stack = Vec::default();
         
             let call_statements = if *is_private {
                 match data.get_internal_ref(call_name) {
@@ -67,7 +98,7 @@ fn execute_statement(now_word: &str, statement: &Statement, data: &Data, static_
 
             for statement in call_statements.iter() {
                 let now_word = static_reference.get(common::NOW_WORD_KEY).unwrap().to_owned();
-                *static_reference.get_mut(common::NOW_WORD_KEY).unwrap() = execute_statement(&now_word, statement, data, &mut static_reference)?;
+                *static_reference.get_mut(common::NOW_WORD_KEY).unwrap() = execute_statement(&now_word, statement, data, &mut static_reference, &mut execute_if_stack)?;
             }
         
             Ok(static_reference.get(common::NOW_WORD_KEY).unwrap().to_string())
@@ -610,6 +641,8 @@ mod lib_test {
     fn if_statement() {
         let words = vec![
             String::from("skea"),
+            String::from("skio"),
+            String::from("simuno"),
             String::from("staa"),
             String::from("sta"),
         ];
@@ -618,6 +651,80 @@ mod lib_test {
         V = "a" | "e" | "i" | "o" | "u"
         if @3 == @4 or @4 == "" {
             "st" V V | "st" V -> "s" @2
+        }
+        "#);
+
+        let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
+        println!("{:?}", result);
+        assert!(result.iter().all(|(_, x)| x.is_ok()));
+    }
+
+    #[test]
+    fn if_else_statement() {
+        let words = vec![
+            String::from("skea"),
+            String::from("skio"),
+            String::from("simuno"),
+            String::from("staa"),
+            String::from("sta"),
+        ];
+        let result = execute(&words, "main", r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        } else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
+        }
+        "#);
+
+        let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
+        println!("{:?}", result);
+        assert!(result.iter().all(|(_, x)| x.is_ok()));
+    }
+
+    #[test]
+    fn if_elif_statement() {
+        let words = vec![
+            String::from("skea"),
+            String::from("skio"),
+            String::from("simuno"),
+            String::from("staa"),
+            String::from("sta"),
+        ];
+        let result = execute(&words, "main", r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        } elif @n like "mu" {
+            "mu" -> "m"
+        }
+        "#);
+
+        let result: Vec<(&String, &Result<String, Error>)> = words.iter().zip(result.iter()).collect();
+        println!("{:?}", result);
+        assert!(result.iter().all(|(_, x)| x.is_ok()));
+    }
+
+    #[test]
+    fn if_elif_else_statement() {
+        let words = vec![
+            String::from("skea"),
+            String::from("skio"),
+            String::from("simuno"),
+            String::from("staa"),
+            String::from("sta"),
+        ];
+        let result = execute(&words, "main", r#"
+        [main]
+        V = "a" | "e" | "i" | "o" | "u"
+        if @3 == @4 or @4 == "" {
+            "st" V V | "st" V -> "s" @2
+        } elif @n like "mu" {
+            "mu" -> "m"
+        } else {
+            ("s" | "k") ("i" | "e") V -> @1 "j" @3
         }
         "#);
 

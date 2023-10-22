@@ -15,6 +15,8 @@ pub struct Data {
 pub(crate) enum Statement {
     Shift(Shift),
     If(Vec<ConditionValue>, Vec<Statement>),
+    Elif(Vec<ConditionValue>, Vec<Statement>),
+    Else(Vec<Statement>),
     Call(bool, String),
 } 
 
@@ -178,6 +180,31 @@ fn create_statement(statement: &parser::Statement, statements: &mut Vec<Statemen
             }
 
             statements.push(Statement::If(condition, local_statements))
+        },
+        parser::Statement::Elif(logical_nodes, parser_statements) => {
+            let condition = create_condition(logical_nodes, variables)?;
+            let mut local_statements = Vec::new();
+
+            for statement in parser_statements.iter() {
+                let mut local_variables = HashMap::new();
+                local_variables.clone_from(variables);
+
+                create_statement(statement, &mut local_statements, &mut local_variables)?;
+            }
+
+            statements.push(Statement::Elif(condition, local_statements))
+        },
+        parser::Statement::Else(parser_statements) => {
+            let mut local_statements = Vec::new();
+
+            for statement in parser_statements.iter() {
+                let mut local_variables = HashMap::new();
+                local_variables.clone_from(variables);
+
+                create_statement(statement, &mut local_statements, &mut local_variables)?;
+            }
+
+            statements.push(Statement::Else(local_statements))
         },
         parser::Statement::Call(is_private, name) => {
             statements.push(Statement::Call(*is_private, name.to_owned()))
