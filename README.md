@@ -27,7 +27,7 @@ C = T | "f" | "s" | "h"
 "i" V when @2 == "i" or @2 == "e" -> "i" "i"
 V T T V when @2 == @3 -> @1 @2 @4
 
--- 他の関数は`call 関数名で呼び出せる`
+-- 他の関数は`call 関数名`で呼び出せる
 call #private_func
 
 -- 公開しない関数は関数名を"#"から始める
@@ -44,7 +44,13 @@ when
     not (@0 like @1 @2 "a" $ or @0 like @1 @2 "u" $)
 ->
     "s" @3
--- 
+
+-- if-elif-else文も使用可能
+if (@2 == "a") and not (@n like C "a" "i") {
+    C "a" -> @1 "ei"
+} elif @1 == "y" {
+    "y" V -> V
+}
 ```
 
 ## 特別な項

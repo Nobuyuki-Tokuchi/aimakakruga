@@ -217,7 +217,9 @@ pub(crate) fn lexer(text: impl Into<String>) -> Vec<Token> {
 }
 
 fn get_value(row: u64, column: u64, value: &str) -> Token {
-    let column = column - u64::try_from(value.len()).unwrap();
+    let column = u64::try_from(value.len()).ok()
+        .map(|x| column.overflowing_sub(x))
+        .map(|(x, is_overflow)| if is_overflow { x.wrapping_add(1) } else { x + 1 }).unwrap();
 
     match value {
         "when" => Token::new(row, column, TokenType::When),

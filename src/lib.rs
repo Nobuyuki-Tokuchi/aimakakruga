@@ -282,6 +282,10 @@ fn check_when(captures: &regex::Captures, condition: &[ConditionValue], static_r
                 stack_bool.push(Regex::new(&second).unwrap().is_match(&first));
             },
         }
+
+        if cfg!(test) {
+            println!("stack: {:?}, stack_bool: {:?}, value:{:?}, captures: {:?}", stack, stack_bool, value, captures);
+        }
     }
 
     Ok(stack_bool.pop().unwrap_or(false))
@@ -427,6 +431,10 @@ fn check_if(str: &str, condition: &[ConditionValue], static_reference: &HashMap<
                 let first = stack.pop().unwrap();
                 stack_bool.push(Regex::new(&second).unwrap().is_match(&first));
             },
+        }
+
+        if cfg!(test) {
+            println!("stack: {:?}, stack_bool: {:?}, value:{:?}, str: {}", stack, stack_bool, value, str);
         }
     }
 
@@ -625,13 +633,16 @@ mod lib_test {
         // 参照が無い場合には空文字列として扱うようにする
         let words = vec![
             String::from("skea"),
+            String::from("skio"),
+            String::from("simuno"),
             String::from("staa"),
             String::from("sta"),
+            String::from("estae"),
         ];
         let result = execute(&words, "main", r#"
         [main]
         V = "a" | "e" | "i" | "o" | "u"
-        "st" V V | "st" V
+        "st" V V | "st" V .
             when @2 == @3 or @3 == ""
             -> "s" @2
         "#);
@@ -649,6 +660,7 @@ mod lib_test {
             String::from("simuno"),
             String::from("staa"),
             String::from("sta"),
+            String::from("estae"),
         ];
         let result = execute(&words, "main", r#"
         [main]
@@ -671,6 +683,7 @@ mod lib_test {
             String::from("simuno"),
             String::from("staa"),
             String::from("sta"),
+            String::from("estae"),
         ];
         let result = execute(&words, "main", r#"
         [main]
@@ -695,6 +708,7 @@ mod lib_test {
             String::from("simuno"),
             String::from("staa"),
             String::from("sta"),
+            String::from("estae"),
         ];
         let result = execute(&words, "main", r#"
         [main]
@@ -719,6 +733,7 @@ mod lib_test {
             String::from("simuno"),
             String::from("staa"),
             String::from("sta"),
+            String::from("estae"),
         ];
         let result = execute(&words, "main", r#"
         [main]
@@ -745,17 +760,18 @@ mod lib_test {
             String::from("simuno"),
             String::from("staa"),
             String::from("sta"),
+            String::from("estae"),
         ];
         let data = r#"
         [main]
         V = "a" | "e" | "i" | "o" | "u"
         if @3 == @4 or @4 == "" {
-            "st" V V | "st" V -> "s" @2
+            "st" V V -> "s" @2
         }
 
         [main2]
         V = "a" | "e" | "i" | "o" | "u"
-        "st" V V | "st" V
+        "st" V V | "st" V .
             when @2 == @3 or @3 == ""
             -> "s" @2
         "#;

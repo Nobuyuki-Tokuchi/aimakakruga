@@ -1,7 +1,11 @@
 [package]
 name = "aimakakruga"
-version = "0.0.7"
+version = "0.1.0-beta1"
 edition = "2021"
+authors = [ "Nobuyuki Tokuchi" ]
+license-file = "LICENSE"
+readme = "README.md"
+repository = "https://github.com/Nobuyuki-Tokuchi/aimakakruga"
 
 [dependencies]
 regex = "1.7"
