@@ -325,8 +325,10 @@ fn check_if(str: &str, condition: &[ConditionValue], static_reference: &HashMap<
                             temp.push_str(s.as_str());
                         },
                         parser::Value::Reference(index) => {
-                            let match_char = chars.get(*index).unwrap_or(&'\0');
-                            temp.push(*match_char);
+                            let match_char = chars.get(*index);
+                            if let Some(match_char) = match_char {
+                                temp.push(*match_char);
+                            }
                         },
                         parser::Value::Part => {
                             let match_str = static_reference.get(common::NOW_WORD_KEY).map(|x| x.as_str()).unwrap_or("");
@@ -359,8 +361,10 @@ fn check_if(str: &str, condition: &[ConditionValue], static_reference: &HashMap<
                             temp.push_str(s.as_str());
                         },
                         parser::Value::Reference(index) => {
-                            let match_char = chars.get(*index).unwrap_or(&'\0');
-                            temp.push(*match_char);
+                            let match_char = chars.get(*index);
+                            if let Some(match_char) = match_char {
+                                temp.push(*match_char);
+                            }
                         },
                         parser::Value::Part => {
                             let match_str = static_reference.get(common::NOW_WORD_KEY).map(|x| x.as_str()).unwrap_or("");
